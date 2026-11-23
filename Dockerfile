@@ -1,4 +1,4 @@
-FROM ubuntu:24.04
+FROM debian:bookworm
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential gcc make pkg-config libssl-dev libasound2-dev libv4l-dev \

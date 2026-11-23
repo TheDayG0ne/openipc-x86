@@ -14,7 +14,7 @@ if ($Docker) {
     if ($LASTEXITCODE -ne 0) { throw "docker build failed ($LASTEXITCODE)" }
     docker run --rm -v "${Source}:/src" -v "$(Resolve-Path $Artifacts):/artifacts" -w /src openipc-x86-divinus:local make -C src clean
     if ($LASTEXITCODE -ne 0) { throw "docker clean failed ($LASTEXITCODE)" }
-    docker run --rm -v "${Source}:/src" -v "$(Resolve-Path $Artifacts):/artifacts" -w /src openipc-x86-divinus:local make -C src --jobs=$Jobs OPT=-lm
+    docker run --rm -v "${Source}:/src" -v "$(Resolve-Path $Artifacts):/artifacts" -w /src openipc-x86-divinus:local make -C src --jobs=$Jobs UVC_FFMPEG=1 OPT=-lm
     if ($LASTEXITCODE -ne 0) { throw "docker build failed ($LASTEXITCODE)" }
 } else {
     & make -C (Join-Path $Source 'src') clean
