@@ -1,0 +1,9 @@
+services:
+  divinus-build:
+    build: .
+    image: openipc-x86-divinus:local
+    working_dir: /src
+    volumes:
+      - ../sources/divinus:/src
+      - ../tmp/artifacts:/artifacts
+    command: ["-C", "src", "-j2"]
