@@ -18,5 +18,11 @@ if ($Docker) {
 }
 $binary = Join-Path $Source 'divinus'
 if (-not (Test-Path $binary)) { throw "Build did not produce $binary" }
-Copy-Item $binary (Join-Path $Artifacts 'divinus') -Force
-& file (Join-Path $Artifacts 'divinus')
+$artifact = Join-Path $Artifacts 'divinus'
+Copy-Item $binary $artifact -Force
+if ($Docker) {
+    docker run --rm -v "$(Resolve-Path $Artifacts):/artifacts" openipc-x86-divinus:local file /artifacts/divinus
+} else {
+    $file = Get-Command file -ErrorAction SilentlyContinue
+    if ($file) { & $file.Source $artifact }
+}
