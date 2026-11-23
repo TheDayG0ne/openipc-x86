@@ -11,9 +11,15 @@ New-Item -ItemType Directory -Force -Path $Artifacts | Out-Null
 if ($Jobs -le 0) { $Jobs = [Environment]::ProcessorCount }
 if ($Docker) {
     docker build -t openipc-x86-divinus:local $PSScriptRoot
+    if ($LASTEXITCODE -ne 0) { throw "docker build failed ($LASTEXITCODE)" }
+    docker run --rm -v "${Source}:/src" -v "$(Resolve-Path $Artifacts):/artifacts" -w /src openipc-x86-divinus:local make -C src clean
+    if ($LASTEXITCODE -ne 0) { throw "docker clean failed ($LASTEXITCODE)" }
     docker run --rm -v "${Source}:/src" -v "$(Resolve-Path $Artifacts):/artifacts" -w /src openipc-x86-divinus:local make -C src --jobs=$Jobs OPT=-lm
+    if ($LASTEXITCODE -ne 0) { throw "docker build failed ($LASTEXITCODE)" }
 } else {
-    & make -C (Join-Path $Source 'src') -j$Jobs
+    & make -C (Join-Path $Source 'src') clean
+    if ($LASTEXITCODE -ne 0) { throw "Divinus clean failed ($LASTEXITCODE)" }
+    & make -C (Join-Path $Source 'src') -j$Jobs OPT=-lm
     if ($LASTEXITCODE -ne 0) { throw "Divinus build failed ($LASTEXITCODE)" }
 }
 $binary = Join-Path $Source 'divinus'
