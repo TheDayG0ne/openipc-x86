@@ -90,8 +90,8 @@ chroot "$ROOT" systemctl enable systemd-networkd.service divinus-camera@1.servic
 truncate -s 4G "$RAW"
 parted -s "$RAW" mklabel msdos mkpart primary ext4 1MiB 100%
 LOOP=$(losetup --find --show --partscan "$RAW")
-mkfs.ext4 "${LOOP}p1"
-mount "${LOOP}p1" "$MOUNT"
+mkfs.ext4 -F -E offset=1048576 "$RAW"
+mount -o loop,offset=1048576 "$RAW" "$MOUNT"
 cp -a "$ROOT"/. "$MOUNT"/
 mount --bind /dev "$MOUNT/dev"
 mount -t proc proc "$MOUNT/proc"
