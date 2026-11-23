@@ -20,7 +20,7 @@ trap cleanup EXIT
 mkdir -p "$ROOT" "$MOUNT"
 test -s "$INPUT/divinus"
 test -s /src/divinus.yaml
-debootstrap --arch=amd64 --variant=minbase bookworm "$ROOT" http://deb.debian.org/debian
+debootstrap --arch=amd64 --no-merged-usr --variant=minbase bookworm "$ROOT" http://deb.debian.org/debian
 cp -L /etc/resolv.conf "$ROOT/etc/resolv.conf"
 chroot "$ROOT" bash -c 'apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends systemd-sysv linux-image-amd64 grub-pc-bin grub-common iproute2 kmod v4l-utils libavcodec59 libavformat59 libavutil57 libswscale6 libswresample4 ca-certificates && apt-get clean && rm -rf /var/lib/apt/lists/*'
 install -D -m755 "$INPUT/divinus" "$ROOT/usr/local/bin/divinus"
