@@ -2,7 +2,8 @@
 set -euxo pipefail
 OUT=/out
 INPUT=/input
-TMP=$(mktemp -d "$OUT/.openipc-vm.XXXXXX")
+WORK=/work
+TMP=$(mktemp -d "$WORK/.openipc-vm.XXXXXX")
 ROOT="$TMP/rootfs"
 RAW="$TMP/openipc-x86.raw"
 MOUNT="$TMP/mnt"
@@ -20,7 +21,7 @@ trap cleanup EXIT
 mkdir -p "$ROOT" "$MOUNT"
 test -s "$INPUT/divinus"
 test -s /src/divinus.yaml
-debootstrap --arch=amd64 --variant=minbase --exclude=usr-is-merged bookworm "$ROOT" http://deb.debian.org/debian
+debootstrap --arch=amd64 --variant=minbase bookworm "$ROOT" http://deb.debian.org/debian
 cp -L /etc/resolv.conf "$ROOT/etc/resolv.conf"
 chroot "$ROOT" bash -c 'apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends systemd-sysv linux-image-amd64 grub-pc-bin grub-common iproute2 kmod v4l-utils libavcodec59 libavformat59 libavutil57 libswscale6 libswresample4 ca-certificates && apt-get clean && rm -rf /var/lib/apt/lists/*'
 install -D -m755 "$INPUT/divinus" "$ROOT/usr/local/bin/divinus"
@@ -33,22 +34,22 @@ base = source.read_text()
 password = secrets.token_urlsafe(24)
 dest.mkdir(parents=True, exist_ok=True)
 for n in range(1, 5):
-    text = base
-    text = text.replace('  web_port: 80', f'  web_port: {8080 + n}')
+    text = base.replace('  web_port: 80', f'  web_port: {8080+n}')
     text = text.replace('  web_enable_auth: false', '  web_enable_auth: true')
     text = text.replace('  web_auth_skiplocal: true', '  web_auth_skiplocal: false')
     text = text.replace('  web_auth_pass: 12345', f'  web_auth_pass: {password}')
     text = text.replace('onvif:\n  enable: false', 'onvif:\n  enable: true')
-    text = text.replace('  enable_auth: false', '  enable_auth: true')
+    text = text.replace('  port: 554', f'  port: {553+n}')
     text = text.replace('  auth_pass: 12345', f'  auth_pass: {password}')
-    text = text.replace('  port: 554', f'  port: {554 + n - 1}')
-    (dest / f'camera{n}.yaml').write_text(text)
-(dest / 'README').write_text('Generated test credentials are present in camera*.yaml; change them before production use.\n')
+    text = text.replace('onvif:\n  enable: true\n  enable_auth: false', 'onvif:\n  enable: true\n  enable_auth: true')
+    text = text.replace('rtsp:\n  enable: true\n  enable_auth: false', 'rtsp:\n  enable: true\n  enable_auth: true')
+    (dest/f'camera{n}.yaml').write_text(text)
+(dest/'README').write_text('Generated test credentials are in camera*.yaml; change them before production use.\n')
 PY
 for n in 1 2 3 4; do
   mkdir -p "$ROOT/etc/openipc/camera$n"
   cp "$ROOT/etc/openipc/camera$n.yaml" "$ROOT/etc/openipc/camera$n/divinus.yaml"
-  printf 'UVC_DEVICE=/dev/video%s\n' "$((n - 1))" > "$ROOT/etc/openipc/camera$n/environment"
+  printf 'UVC_DEVICE=/dev/video%s\n' "$((n-1))" > "$ROOT/etc/openipc/camera$n/environment"
 done
 cat > "$ROOT/etc/systemd/system/divinus-camera@.service" <<'UNIT'
 [Unit]
@@ -99,6 +100,7 @@ chroot "$MOUNT" grub-install --target=i386-pc --recheck "$LOOP"
 chroot "$MOUNT" update-grub
 umount -l "$MOUNT/sys" "$MOUNT/proc" "$MOUNT/dev" "$MOUNT"
 losetup -d "$LOOP"; LOOP=''
-qemu-img convert -p -f raw -O vmdk "$RAW" "$OUT/openipc-x86.vmdk"
-qemu-img info "$OUT/openipc-x86.vmdk"
+qemu-img convert -p -f raw -O vmdk "$RAW" "$TMP/openipc-x86.vmdk"
+qemu-img info "$TMP/openipc-x86.vmdk"
+cp -f "$TMP/openipc-x86.vmdk" "$OUT/openipc-x86.vmdk"
 sha256sum "$OUT/openipc-x86.vmdk" > "$OUT/openipc-x86.vmdk.sha256"
