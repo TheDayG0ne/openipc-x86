@@ -89,7 +89,6 @@ chroot "$ROOT" passwd --lock root
 chroot "$ROOT" systemctl enable systemd-networkd.service divinus-camera@1.service divinus-camera@2.service divinus-camera@3.service divinus-camera@4.service
 truncate -s 4G "$RAW"
 parted -s "$RAW" mklabel msdos mkpart primary ext4 1MiB 100%
-LOOP=$(losetup --find --show --partscan "$RAW")
 mkfs.ext4 -F -E offset=1048576 "$RAW"
 mount -o loop,offset=1048576 "$RAW" "$MOUNT"
 cp -a "$ROOT"/. "$MOUNT"/
@@ -99,7 +98,9 @@ mount --bind /sys "$MOUNT/sys"
 chroot "$MOUNT" grub-install --target=i386-pc --recheck "$LOOP"
 chroot "$MOUNT" update-grub
 umount -l "$MOUNT/sys" "$MOUNT/proc" "$MOUNT/dev" "$MOUNT"
-losetup -d "$LOOP"; LOOP=''
+LOOP=$(losetup -j "$RAW" | cut -d: -f1 | head -1 || true)
+[ -z "$LOOP" ] || losetup -d "$LOOP"
+LOOP=''
 qemu-img convert -p -f raw -O vmdk "$RAW" "$TMP/openipc-x86.vmdk"
 qemu-img info "$TMP/openipc-x86.vmdk"
 cp -f "$TMP/openipc-x86.vmdk" "$OUT/openipc-x86.vmdk"
