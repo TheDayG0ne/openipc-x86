@@ -22,7 +22,7 @@ Set-Location D:\OpenIPC-x86\build-environment
 .\run-vm.ps1 -Disk ..\tmp\artifacts\openipc-x86.qcow2
 ```
 
-`make-vm.ps1` намеренно создаёт пустой диск: это не готовая загрузочная VM/OVA. Для полноценного OVA нужен guest kernel/rootfs (Buildroot x86 defconfig или отдельный Linux guest), установка Divinus и `ovftool`; без этого нельзя честно заявлять, что OVA/VMDK с OpenIPC уже работает. Артефакты направляются на `D:` через пути проекта. Не запускайте Docker Desktop с его VHDX на `C:` при требовании хранения Docker-артефактов на `D:`.
+`make-vm.ps1` оставлен как низкоуровневый инструмент. Для загрузочного Debian VMDK используйте `build-vmdk.ps1`: Docker выполняет debootstrap, ставит kernel/systemd/V4L2, копирует собранный Divinus, включает ONVIF и создаёт сервис, GRUB и VMDK в `../tmp/artifacts`. Docker запускается privileged, потому что builder использует loop devices; это проверенный способ только на Linux Docker engine. На Windows Docker Desktop он может быть ограничен — в таком случае сборка честно завершится ошибкой, а не выдаст пустой артефакт. OVA автоматически не создаётся: нужен VMware/VirtualBox `ovftool` и проверка загрузки полученного VMDK. Артефакты направляются на `D:` через пути проекта. Не запускайте Docker Desktop с его VHDX на `C:` при требовании хранения Docker-артефактов на `D:`.
 
 ## Проверки
 
