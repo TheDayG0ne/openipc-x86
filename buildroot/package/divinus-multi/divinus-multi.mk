@@ -7,8 +7,8 @@ DIVINUS_MULTI_SITE = $(BR2_EXTERNAL_X86_PATH)/package/divinus-multi
 DIVINUS_MULTI_SITE_METHOD = local
 DIVINUS_MULTI_LICENSE = GPL-2.0+
 
-# The launcher is configuration-only orchestration. It does not replace Divinus,
-# the UVC HAL, WebUI, or ONVIF implementation.
+# The launcher starts one central Divinus HTTP process and camera-only workers;
+# Divinus owns the documented web_port: 0 worker mode.
 define DIVINUS_MULTI_INSTALL_TARGET_CMDS
 	# Replace the single-instance init hook, never run both launchers.
 	rm -f $(TARGET_DIR)/etc/init.d/S95divinus
