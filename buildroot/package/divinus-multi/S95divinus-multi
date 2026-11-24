@@ -20,6 +20,22 @@ stop_one() {
     kill "$pid" 2>/dev/null || true
     rm -f "$p"
 }
+write_manifest() {
+    tmp="/run/divinus/cameras.manifest.tmp.$$"
+    : > "$tmp" || return 1
+    i=1
+    while [ "$i" -le "$count" ]; do
+        eval "rtsp=\${MULTI_RTSP_PORT_$i}"
+        [ -n "$rtsp" ] || rtsp=$((553 + i))
+        case "$rtsp" in *[!0-9]*|'') return 1;; esac
+        [ "$rtsp" -ge 1 ] 2>/dev/null && [ "$rtsp" -le 65535 ] 2>/dev/null || return 1
+        printf 'slot=%s rtsp_port=%s\n' "$i" "$rtsp" >> "$tmp" || return 1
+        i=$((i + 1))
+    done
+    chown 0:0 "$tmp" 2>/dev/null || return 1
+    chmod 600 "$tmp" || return 1
+    mv -f "$tmp" /run/divinus/cameras.manifest || return 1
+}
 write_config() {
     dir=$1; web=$2; rtsp=$3; rtsp_enable=$4
     awk -v web="$web" -v rtsp="$rtsp" -v rtsp_enable="$rtsp_enable" '
@@ -57,10 +73,11 @@ start_camera() {
 
 case "$1" in
  start)
-    mkdir -p "$BASE" "$PIDS"
-    start_central
+    mkdir -p "$BASE" "$PIDS" /run/divinus
     count=${MULTI_CAMERAS:-0}; [ "$count" -ge 0 ] 2>/dev/null || count=0
     [ "$count" -le 4 ] 2>/dev/null || count=4
+    write_manifest || exit 1
+    start_central
     i=1
     while [ "$i" -le "$count" ]; do
         eval "dev=\${MULTI_DEVICE_$i}"; eval "rtsp=\${MULTI_RTSP_PORT_$i}"
@@ -71,6 +88,7 @@ case "$1" in
  stop)
     stop_one central
     i=1; while [ "$i" -le 4 ]; do stop_one "camera-$i"; i=$((i + 1)); done
+    rm -f /run/divinus/cameras.manifest /run/divinus/cameras.manifest.tmp.*
     ;;
  restart) "$0" stop; sleep 1; "$0" start ;;
  *) echo "Usage: $0 {start|stop|restart}" >&2; exit 1 ;;
