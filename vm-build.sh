@@ -1,5 +1,5 @@
 #!/bin/bash
-set -euxo pipefail
+set -euo pipefail
 OUT=/out
 INPUT=/input
 WORK=/work
@@ -23,46 +23,69 @@ test -s "$INPUT/divinus"
 test -s /src/divinus.yaml
 debootstrap --arch=amd64 --variant=minbase bookworm "$ROOT" http://deb.debian.org/debian
 cp -L /etc/resolv.conf "$ROOT/etc/resolv.conf"
-chroot "$ROOT" bash -c 'apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends systemd-sysv linux-image-amd64 grub-pc grub-pc-bin grub-common iproute2 kmod v4l-utils libavcodec59 libavformat59 libavutil57 libswscale6 libswresample4 ca-certificates && apt-get clean && rm -rf /var/lib/apt/lists/*'
+chroot "$ROOT" bash -c 'apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends systemd-sysv systemd-resolved linux-image-amd64 grub-pc grub-pc-bin grub-common iproute2 kmod v4l-utils libavcodec59 libavformat59 libavutil57 libswscale6 libswresample4 ca-certificates && apt-get clean && rm -rf /var/lib/apt/lists/*'
 install -D -m755 "$INPUT/divinus" "$ROOT/usr/local/bin/divinus"
 install -D -m644 /src/divinus.yaml "$ROOT/usr/share/openipc/divinus.yaml"
-python3 - "$ROOT/usr/share/openipc/divinus.yaml" "$ROOT/etc/openipc" <<'PY'
+python3 - "$ROOT/usr/share/openipc/divinus.yaml" "$ROOT/etc/openipc" /secrets/credentials.txt <<'PY'
 from pathlib import Path
 import secrets, sys
-source, dest = map(Path, sys.argv[1:])
+source, dest, export = map(Path, sys.argv[1:])
 base = source.read_text()
-password = secrets.token_urlsafe(24)
+recovery = secrets.token_urlsafe(24)
+credentials = [f"root (console): {recovery}"]
 dest.mkdir(parents=True, exist_ok=True)
 for n in range(1, 5):
+    passwords = {key: secrets.token_urlsafe(24) for key in ("web", "onvif", "rtsp")}
+    credentials.append(f"camera{n}: " + ", ".join(f"{k} admin: {v}" for k, v in passwords.items()))
     text = base.replace('  web_port: 80', f'  web_port: {8080+n}')
     text = text.replace('  web_enable_auth: false', '  web_enable_auth: true')
     text = text.replace('  web_auth_skiplocal: true', '  web_auth_skiplocal: false')
-    text = text.replace('  web_auth_pass: 12345', f'  web_auth_pass: {password}')
+    text = text.replace('  web_auth_pass: 12345', f'  web_auth_pass: {passwords["web"]}')
     text = text.replace('onvif:\n  enable: false', 'onvif:\n  enable: true')
     text = text.replace('  port: 554', f'  port: {553+n}')
-    text = text.replace('  auth_pass: 12345', f'  auth_pass: {password}')
+    for section in ('onvif', 'rtsp'):
+        start = text.index(section + ':\n')
+        end = text.find('\n\n', start)
+        if end < 0: end = len(text)
+        part = text[start:end]
+        assert '  auth_pass: 12345' in part
+        text = text[:start] + part.replace('  auth_pass: 12345', f'  auth_pass: {passwords[section]}', 1) + text[end:]
     text = text.replace('onvif:\n  enable: true\n  enable_auth: false', 'onvif:\n  enable: true\n  enable_auth: true')
     text = text.replace('rtsp:\n  enable: true\n  enable_auth: false', 'rtsp:\n  enable: true\n  enable_auth: true')
+    assert '  web_auth_pass: 12345' not in text
     (dest/f'camera{n}.yaml').write_text(text)
+export.write_text('\n'.join(credentials) + '\n')
+export.chmod(0o600)
+(dest/'recovery-password').write_text(recovery)
 (dest/'README').write_text('Generated test credentials are in camera*.yaml; change them before production use.\n')
 PY
+chmod 700 "$ROOT/etc/openipc"
+chmod 600 "$ROOT/etc/openipc/"*.yaml "$ROOT/etc/openipc/recovery-password"
+printf 'root:%s\n' "$(cat "$ROOT/etc/openipc/recovery-password")" | chroot "$ROOT" chpasswd
+rm "$ROOT/etc/openipc/recovery-password"
 for n in 1 2 3 4; do
   mkdir -p "$ROOT/etc/openipc/camera$n"
   cp "$ROOT/etc/openipc/camera$n.yaml" "$ROOT/etc/openipc/camera$n/divinus.yaml"
+  chmod 600 "$ROOT/etc/openipc/camera$n/divinus.yaml"
+  mkdir -p "$ROOT/etc/systemd/system/divinus-camera@$n.service.d" "$ROOT/etc/udev/rules.d"
+  printf '[Unit]\nBindsTo=dev-video%s.device\nAfter=dev-video%s.device\n' "$((n-1))" "$((n-1))" > "$ROOT/etc/systemd/system/divinus-camera@$n.service.d/device.conf"
+  printf 'SUBSYSTEM=="video4linux", KERNEL=="video%s", TAG+="systemd", ENV{SYSTEMD_WANTS}+="divinus-camera@%s.service"\n' "$((n-1))" "$n" >> "$ROOT/etc/udev/rules.d/80-openipc-cameras.rules"
   printf 'UVC_DEVICE=/dev/video%s\n' "$((n-1))" > "$ROOT/etc/openipc/camera$n/environment"
 done
 cat > "$ROOT/etc/systemd/system/divinus-camera@.service" <<'UNIT'
 [Unit]
 Description=OpenIPC Divinus camera %i (non-production test image)
-After=network-online.target systemd-udev-settle.service
+After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
 [Service]
 Type=simple
 WorkingDirectory=/etc/openipc/camera%i
 EnvironmentFile=/etc/openipc/camera%i/environment
 ExecStart=/usr/local/bin/divinus
 Restart=on-failure
-RestartSec=2
+RestartSec=10
 [Install]
 WantedBy=multi-user.target
 UNIT
@@ -73,8 +96,9 @@ Name=en* eth*
 [Network]
 DHCP=yes
 NET
+ln -sf /run/systemd/resolve/stub-resolv.conf "$ROOT/etc/resolv.conf"
 cat > "$ROOT/etc/fstab" <<'FSTAB'
-/dev/sda1 / ext4 errors=remount-ro 0 1
+LABEL=openipc-root / ext4 errors=remount-ro 0 1
 FSTAB
 printf 'openipc-x86\n' > "$ROOT/etc/hostname"
 cat > "$ROOT/etc/default/grub" <<'GRUB'
@@ -85,11 +109,10 @@ GRUB_TERMINAL="serial console"
 GRUB_SERIAL_COMMAND="serial --speed=115200 --unit=0 --word=8 --parity=no --stop=1"
 GRUB
 chroot "$ROOT" useradd --system --create-home --shell /usr/sbin/nologin openipc || true
-chroot "$ROOT" passwd --lock root
-chroot "$ROOT" systemctl enable systemd-networkd.service divinus-camera@1.service divinus-camera@2.service divinus-camera@3.service divinus-camera@4.service
+chroot "$ROOT" systemctl enable systemd-networkd.service systemd-resolved.service
 truncate -s 4G "$RAW"
 parted -s "$RAW" mklabel msdos mkpart primary ext4 1MiB 100%
-mkfs.ext4 -F -E offset=1048576 "$RAW"
+mkfs.ext4 -F -L openipc-root -E offset=1048576 "$RAW"
 mount -o loop,offset=1048576 "$RAW" "$MOUNT"
 cp -a "$ROOT"/. "$MOUNT"/
 mount --bind /dev "$MOUNT/dev"
@@ -103,5 +126,5 @@ umount -l "$MOUNT/sys" "$MOUNT/proc" "$MOUNT/dev" "$MOUNT"
 LOOP=''
 qemu-img convert -p -f raw -O vmdk "$RAW" "$TMP/openipc-x86.vmdk"
 qemu-img info "$TMP/openipc-x86.vmdk"
-cp -f "$TMP/openipc-x86.vmdk" "$OUT/openipc-x86.vmdk"
+( set -C; cat "$TMP/openipc-x86.vmdk" > "$OUT/openipc-x86.vmdk" )
 sha256sum "$OUT/openipc-x86.vmdk" > "$OUT/openipc-x86.vmdk.sha256"

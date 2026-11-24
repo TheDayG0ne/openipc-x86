@@ -4,6 +4,14 @@ services:
     image: openipc-x86-divinus:local
     working_dir: /src
     volumes:
-      - ../sources/divinus:/src
+      - ../sources/divinus:/src:ro
       - ../tmp/artifacts:/artifacts
-    command: ["-C", "src", "-j2"]
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        work=$$(mktemp -d)
+        trap 'rm -rf "$$work"' EXIT
+        cp -a /src/. "$$work/"
+        make -C "$$work/src" clean
+        make -C "$$work/src" -j2 UVC_FFMPEG=1 OPT=-lm
+        cp "$$work/divinus" /artifacts/divinus
