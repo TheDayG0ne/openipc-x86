@@ -27,15 +27,25 @@ test -s /src/divinus.yaml
 debootstrap --arch=amd64 --variant=minbase bookworm "$ROOT" http://deb.debian.org/debian
 cp -L /etc/resolv.conf "$ROOT/etc/resolv.conf"
 chroot "$ROOT" bash -c 'apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends systemd-sysv systemd-resolved linux-image-amd64 grub-pc grub-pc-bin grub-common iproute2 kmod v4l-utils libavcodec59 libavformat59 libavutil57 libswscale6 libswresample4 ca-certificates && apt-get clean && rm -rf /var/lib/apt/lists/*'
-install -D -m755 "$INPUT/divinus" "$ROOT/usr/local/bin/divinus"
+install -D -m755 "$INPUT/divinus" "$ROOT/usr/lib/openipc/divinus.bin"
+install -D -m755 /usr/local/share/openipc/setup-gate "$ROOT/usr/lib/openipc/setup-gate"
+install -D -m755 /usr/local/share/openipc/firstboot "$ROOT/usr/lib/openipc/firstboot"
+install -d -m755 "$ROOT/usr/share/openipc/eula"
+cp /eula/eula.*.txt "$ROOT/usr/share/openipc/eula/"
+test -s "$ROOT/usr/share/openipc/eula/eula.en.txt"
+cat > "$ROOT/usr/local/bin/divinus" <<'WRAPPER'
+#!/bin/sh
+/usr/lib/openipc/setup-gate || { echo 'OpenIPC setup required on tty1' >&2; exit 1; }
+exec /usr/lib/openipc/divinus.bin "$@"
+WRAPPER
+chmod 755 "$ROOT/usr/local/bin/divinus"
 install -D -m644 /src/divinus.yaml "$ROOT/usr/share/openipc/divinus.yaml"
 python3 - "$ROOT/usr/share/openipc/divinus.yaml" "$ROOT/etc/openipc" /secrets/credentials.txt <<'PY'
 from pathlib import Path
 import secrets, sys
 source, dest, export = map(Path, sys.argv[1:])
 base = source.read_text()
-recovery = secrets.token_urlsafe(24)
-credentials = [f"root (console): {recovery}"]
+credentials = []
 dest.mkdir(parents=True, exist_ok=True)
 for n in range(1, 5):
     passwords = {key: secrets.token_urlsafe(24) for key in ("web", "onvif", "rtsp")}
@@ -59,13 +69,30 @@ for n in range(1, 5):
     (dest/f'camera{n}.yaml').write_text(text)
 export.write_text('\n'.join(credentials) + '\n')
 export.chmod(0o600)
-(dest/'recovery-password').write_text(recovery)
 (dest/'README').write_text('Generated test credentials are in camera*.yaml; change them before production use.\n')
 PY
 chmod 700 "$ROOT/etc/openipc"
-chmod 600 "$ROOT/etc/openipc/"*.yaml "$ROOT/etc/openipc/recovery-password"
-printf 'root:%s\n' "$(cat "$ROOT/etc/openipc/recovery-password")" | chroot "$ROOT" chpasswd
-rm "$ROOT/etc/openipc/recovery-password"
+chmod 600 "$ROOT/etc/openipc/"*.yaml
+chroot "$ROOT" passwd -l root
+cat > "$ROOT/etc/systemd/system/openipc-firstboot.service" <<'UNIT'
+[Unit]
+Description=OpenIPC local first boot setup
+After=systemd-user-sessions.service
+Before=serial-getty@ttyS0.service
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/openipc/firstboot
+StandardInput=tty-force
+StandardOutput=tty
+TTYPath=/dev/ttyS0
+Restart=on-failure
+RestartSec=3
+[Install]
+WantedBy=multi-user.target
+UNIT
+chroot "$ROOT" systemctl enable openipc-firstboot.service
+mkdir -p "$ROOT/etc/systemd/system/serial-getty@ttyS0.service.d"
+printf '[Unit]\nAfter=openipc-firstboot.service\n' > "$ROOT/etc/systemd/system/serial-getty@ttyS0.service.d/openipc.conf"
 for n in 1 2 3 4; do
   mkdir -p "$ROOT/etc/openipc/camera$n"
   cp "$ROOT/etc/openipc/camera$n.yaml" "$ROOT/etc/openipc/camera$n/divinus.yaml"
@@ -86,6 +113,7 @@ StartLimitBurst=3
 Type=simple
 WorkingDirectory=/etc/openipc/camera%i
 EnvironmentFile=/etc/openipc/camera%i/environment
+ExecStartPre=/usr/lib/openipc/setup-gate
 ExecStart=/usr/local/bin/divinus
 Restart=on-failure
 RestartSec=10
@@ -165,4 +193,6 @@ PART_NODE_CREATED=''
 qemu-img convert -p -f raw -O vmdk "$RAW" "$TMP/openipc-x86.vmdk"
 qemu-img info "$TMP/openipc-x86.vmdk"
 ( set -C; cat "$TMP/openipc-x86.vmdk" > "$OUT/openipc-x86.vmdk" )
-sha256sum "$OUT/openipc-x86.vmdk" > "$OUT/openipc-x86.vmdk.sha256"
+( set -C; cat "$RAW" > "$OUT/openipc-x86.img" )
+( set -C; sha256sum "$OUT/openipc-x86.vmdk" > "$OUT/openipc-x86.vmdk.sha256" )
+( set -C; sha256sum "$OUT/openipc-x86.img" > "$OUT/openipc-x86.img.sha256" )
