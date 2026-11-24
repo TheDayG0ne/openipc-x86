@@ -13,16 +13,24 @@ mount -t proc proc /proc || fail 'cannot mount proc'
 mount -t devtmpfs devtmpfs /dev || fail 'cannot mount devtmpfs'
 # Avoid ever mounting the root device writable as the data store.
 awk '$2 == "/" && $3 == "squashfs" && $4 ~ /(^|,)ro(,|$)/ {ok=1} END {exit !ok}' /proc/mounts || fail 'root must be read-only squashfs'
-mkdir -p /overlay /mnt /rom
+# The lower squashfs is read-only: these mountpoints must exist in the image.
+for d in /overlay /mnt /rom; do
+    [ -d "$d" ] && [ ! -L "$d" ] || fail "missing or unsafe mountpoint $d"
+done
 
 device=
+seen=
+# Kernel arguments are words, not pathname patterns.
+set -f
 for arg in $(cat /proc/cmdline); do
     case "$arg" in overlay.x86=*)
-        [ -z "$device" ] || fail 'duplicate overlay.x86'
+        [ -z "$seen" ] || fail 'duplicate overlay.x86'
+        seen=1
         device=${arg#overlay.x86=}
         ;;
     esac
 done
+set +f
 case "$device" in /dev/*) ;; *) fail 'overlay.x86 must name a /dev block device' ;; esac
 [ -b "$device" ] || fail 'overlay device absent or not a block device'
 # Explicit provisioning is mandatory; an unmountable disk is never reformatted.
