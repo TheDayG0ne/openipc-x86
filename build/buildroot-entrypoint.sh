@@ -13,7 +13,7 @@ git -C /work/buildroot checkout -q --detach FETCH_HEAD
 mkdir -p /work/output/firmware-general /work/buildroot-x86 /work/divinus
 rsync -a --exclude=.git /repo/sources/firmware/general/ /work/output/firmware-general/
 rsync -a --exclude=.git /repo/buildroot/ /work/buildroot-x86/
-# Also stage the early init expected by the forthcoming Buildroot integration.
+# The external defconfig applies this overlay after its board overlay.
 mkdir -p /work/buildroot-x86/overlay-x86
 rsync -a /repo/overlay/overlay/ /work/buildroot-x86/overlay-x86/
 find /work/buildroot-x86/overlay-x86 -type f ! -name '.keep' -exec sed -i 's/\r$//' {} +

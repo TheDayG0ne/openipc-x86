@@ -1,6 +1,6 @@
 # OpenIPC x86 (experimental monorepo)
 
-This repository combines the experimental x86 Buildroot external tree, overlay, disk-image tooling, tests and public upstream source submodules. It is not a production firmware release. **The current build targets a kernel (`bzImage`) and an ext4 root filesystem (`rootfs.ext4`), not a bootable disk image.** The image tool requires a compatible squashfs root and early init; it is not integrated with the current build. Boot, persistence, UVC, RTSP and security are not validated. Do not flash physical disks; isolate experiments from untrusted networks. x264 includes GPL code.
+This repository combines the experimental x86 Buildroot external tree, overlay, disk-image tooling, tests and public upstream source submodules. It is not a production firmware release. **The build targets a kernel (`bzImage`), squashfs and ext4 root filesystems.** The disk-image tool can consume the squashfs, but is not automatically run: it requires privileged loop devices and mounts in an isolated Linux VM. Boot, persistence, UVC, RTSP and security are not validated. Do not flash physical disks; isolate experiments from untrusted networks. x264 includes GPL code.
 
 ## Build
 

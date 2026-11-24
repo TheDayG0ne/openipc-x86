@@ -18,6 +18,8 @@ docker cp "${container}:/work/output/images/bzImage" $output
 Check-Exit
 docker cp "${container}:/work/output/images/rootfs.ext4" $output
 Check-Exit
+docker cp "${container}:/work/output/images/rootfs.squashfs" $output
+Check-Exit
 docker rm $container | Out-Null
 Check-Exit
-Write-Host "Artifacts: $output (kernel and ext4 root filesystem; no disk image)"
+Write-Host "Artifacts: $output (kernel, squashfs and ext4 root filesystems). Disk images require a separate isolated Linux VM; see build/README.md."

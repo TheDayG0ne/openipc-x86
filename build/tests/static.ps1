@@ -18,4 +18,7 @@ foreach ($path in $pins.Keys) {
 if ($runner -notmatch 'submodule update --init --recursive' -or $runner -notmatch '\$\{repo\}:/repo:ro') { throw 'Missing submodule initialization or read-only checkout' }
 if ($runner -match 'docker\s+(?:volume\s+(?:rm|prune)|system\s+prune)' -or $runner -notmatch 'NewGuid' -or $runner -notmatch 'docker cp') { throw 'Unexpected container lifecycle' }
 if ($entry -match 'BUILDROOT_X86_URL|OVERLAY_X86_URL|DISK_IMAGE_X86_URL') { throw 'Obsolete external URL setting' }
+$config = Get-Content -Raw (Join-Path $repo 'buildroot/configs/openipc_x86_64_defconfig')
+if ($config -notmatch 'BR2_TARGET_ROOTFS_SQUASHFS=y' -or $config -notmatch 'BR2_EXTERNAL_X86_PATH\)/overlay-x86' -or $entry -notmatch '/repo/overlay/overlay/') { throw 'Missing squashfs or overlay integration' }
+if ($runner -notmatch 'rootfs\.squashfs' -or $runner -notmatch 'bzImage') { throw 'Missing artifact export' }
 Write-Host 'Static checks passed.'
