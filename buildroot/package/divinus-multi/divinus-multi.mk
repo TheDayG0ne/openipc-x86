@@ -6,6 +6,7 @@ DIVINUS_MULTI_VERSION = local
 DIVINUS_MULTI_SITE = $(BR2_EXTERNAL_X86_PATH)/package/divinus-multi
 DIVINUS_MULTI_SITE_METHOD = local
 DIVINUS_MULTI_LICENSE = GPL-2.0+
+DIVINUS_MULTI_DEPENDENCIES = divinus
 
 # The launcher starts one central Divinus HTTP process and camera-only workers;
 # Divinus owns the documented web_port: 0 worker mode.

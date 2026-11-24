@@ -17,3 +17,13 @@ sed -i '/^mjpeg:/,/^[^ ]/ s/^  enable: true$/  enable: false/' "$config"
 [ "$(sed -n '/^mjpeg:/,/^[^ ]/p' "$config" | grep -c '^  enable: false$')" -eq 1 ]
 # O_NOFOLLOW requires a real document root, not a /var/www symlink.
 [ -d "$1/var/www" ] && [ ! -L "$1/var/www" ]
+
+# Enforce exactly one Divinus init hook after packages and overlays are installed.
+: "${BR2_CONFIG:?Buildroot configuration is required}"
+if grep -qx 'BR2_PACKAGE_DIVINUS_MULTI=y' "$BR2_CONFIG"; then
+    rm -f "$1/etc/init.d/S95divinus"
+    [ -f "$1/etc/init.d/S95divinus-multi" ] && [ -x "$1/etc/init.d/S95divinus-multi" ]
+elif grep -qx 'BR2_PACKAGE_DIVINUS=y' "$BR2_CONFIG"; then
+    rm -f "$1/etc/init.d/S95divinus-multi"
+    [ -f "$1/etc/init.d/S95divinus" ] && [ -x "$1/etc/init.d/S95divinus" ]
+fi
