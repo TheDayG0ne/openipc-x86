@@ -5,9 +5,9 @@ $entry = Get-Content -Raw (Join-Path $build 'buildroot-entrypoint.sh')
 $runner = Get-Content -Raw (Join-Path $build 'build.ps1')
 if (-not $entry.Contains('4235e198768df7d2696f49f28b090c08fed79954') -or -not $entry.Contains('c9620ac37e658d177821be85b4c9484e71e19710')) { throw 'Missing Buildroot tag or peeled commit pin' }
 $pins = @{
-    'sources/divinus' = '10f24cc9a9b931cfa9ae2e10bc8907959e0f7216'
+    'sources/divinus' = '943b7d5396955ede00aa85c03f2723bf6df4a183'
     'sources/firmware' = '9e6a05287f4fc17d914e621bcf824e89dbcb8b0c'
-    'sources/divinus-webui' = 'a9efa2a5b6304b5a7539b4616dfa0d6cf4be42e6'
+    'sources/divinus-webui' = 'c07b4b2326ecf8cb46b679f0a2af8553ee24b148'
 }
 foreach ($path in $pins.Keys) {
     $record = git -C $repo ls-files --stage -- $path

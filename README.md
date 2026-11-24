@@ -4,6 +4,29 @@ This repository combines the experimental x86 Buildroot external tree, overlay, 
 
 ## Build
 
+### Ubuntu Server 24.04 (one command)
+
+Use a dedicated, patched Ubuntu Server 24.04 build host or isolated VM. From any directory, run the public helper below; it clones this repository from Git, initializes the pinned public submodules, and uses the existing Docker Buildroot pipeline:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TheDayG0ne/openipc-x86/master/build/build-ubuntu.sh -o build-ubuntu.sh
+chmod 0755 build-ubuntu.sh
+./build-ubuntu.sh
+```
+
+The helper **does not install Docker by default**. If Docker is not already installed, review the script and explicitly opt in to the Ubuntu package installation with `INSTALL_DOCKER=1 ./build-ubuntu.sh`. This uses `sudo apt-get` and enables the Docker service; use a separate build VM, keep packages updated, and remember that Docker access (including membership in the `docker` group) is effectively root-equivalent. Do not run the build on a workstation containing secrets or production mounts. The script never embeds IP addresses, credentials, tokens, or private URLs. Use `--ref` to select a reviewed Git ref, `--jobs N` to limit parallelism, and `--output DIR` to place artifacts outside the checkout.
+
+The builder mounts the checkout read-only and retains the uniquely tagged builder image. On success it prints an artifacts directory containing `bzImage`, `rootfs.ext4`, and `rootfs.squashfs`; it does not create an ISO, raw disk image, VMDK, or flash media. On failure the container and image are intentionally retained for diagnosis. Inspect with `docker logs <container>` and remove only the exact tagged resources after review; no Docker-wide prune is performed. Treat artifacts as untrusted build output, verify hashes/signatures in your release process, and transfer them only through an authenticated, access-controlled channel. Do not boot or flash them on production hardware. Disk-image creation requires a separate isolated Linux VM with deliberately reviewed privileged loop/mount access; see [image/README.md](image/README.md).
+
+Static verification, without Docker or a build, is available from a checkout:
+
+```bash
+bash -n build/build-ubuntu.sh build/buildroot-entrypoint.sh
+powershell.exe -NoProfile -File ./build/tests/static.ps1  # if PowerShell is installed
+```
+
+The Ubuntu helper is a convenience wrapper around `build/build.ps1`'s Docker pipeline; it does not alter component sources. For reproducibility, review the selected commit and submodule gitlinks before building. Network access is needed for the clone, submodules, Docker base image, and Buildroot downloads.
+
 On Windows install Git, PowerShell and Docker Desktop using Linux containers. From a fresh clone run:
 
 ```powershell
@@ -16,9 +39,9 @@ The script initializes the pinned submodules recursively and runs the existing B
 
 | Submodule | Public URL | Commit |
 | --- | --- | --- |
-| `sources/divinus` | https://github.com/TheDayG0ne/divinus.git | `980b1831bf832c1c435eceac2229130bc044f44a` |
+| `sources/divinus` | https://github.com/TheDayG0ne/divinus.git | `943b7d5396955ede00aa85c03f2723bf6df4a183` |
 | `sources/firmware` | https://github.com/OpenIPC/firmware.git | `9e6a05287f4fc17d914e621bcf824e89dbcb8b0c` |
-| `sources/divinus-webui` | https://github.com/TheDayG0ne/divinus-webui.git | `a9efa2a5b6304b5a7539b4616dfa0d6cf4be42e6` |
+| `sources/divinus-webui` | https://github.com/TheDayG0ne/divinus-webui.git | `c07b4b2326ecf8cb46b679f0a2af8553ee24b148` |
 
 The build uses Divinus, firmware and Divinus WebUI. The WebUI's unminified `www` tree is installed in `/usr/share/divinus-webui`; no reverse proxy or WebUI server configuration is added. Serving it requires independent Divinus support; CGI execution, backend dependencies, authentication and functionality are not established by copying these files. See the [WebUI README](sources/divinus-webui/README.md) for its limitations. Submodule contents and configuration remain upstream. Buildroot itself is fetched using annotated tag object `4235e198768df7d2696f49f28b090c08fed79954` (2024.02.10), which resolves to commit `c9620ac37e658d177821be85b4c9484e71e19710`. The Debian base image, apt packages and other Buildroot downloads are not all pinned, so this is not a guarantee of bit-identical results. Review source licenses and independently verify upstreams.
 
