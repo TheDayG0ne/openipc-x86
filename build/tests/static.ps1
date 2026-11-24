@@ -3,7 +3,7 @@ $build = Split-Path -Parent $PSScriptRoot
 $repo = Split-Path -Parent $build
 $entry = Get-Content -Raw (Join-Path $build 'buildroot-entrypoint.sh')
 $runner = Get-Content -Raw (Join-Path $build 'build.ps1')
-if (-not $entry.Contains('4235e198768df7d2696f49f28b090c08fed79954')) { throw 'Missing Buildroot pin' }
+if (-not $entry.Contains('4235e198768df7d2696f49f28b090c08fed79954') -or -not $entry.Contains('c9620ac37e658d177821be85b4c9484e71e19710')) { throw 'Missing Buildroot tag or peeled commit pin' }
 $pins = @{
     'sources/divinus' = '980b1831bf832c1c435eceac2229130bc044f44a'
     'sources/firmware' = '9e6a05287f4fc17d914e621bcf824e89dbcb8b0c'

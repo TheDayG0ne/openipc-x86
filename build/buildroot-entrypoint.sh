@@ -9,7 +9,8 @@ git init -q /work/buildroot
 git -C /work/buildroot remote add origin https://github.com/buildroot/buildroot.git
 git -C /work/buildroot fetch --depth 1 origin 4235e198768df7d2696f49f28b090c08fed79954
 git -C /work/buildroot checkout -q --detach FETCH_HEAD
-[ "$(git -C /work/buildroot rev-parse HEAD)" = 4235e198768df7d2696f49f28b090c08fed79954 ] || exit 1
+# The pinned object is an annotated tag; checkout dereferences it to this commit.
+[ "$(git -C /work/buildroot rev-parse HEAD)" = c9620ac37e658d177821be85b4c9484e71e19710 ] || { echo 'Unexpected Buildroot commit' >&2; exit 1; }
 mkdir -p /work/output/firmware-general /work/buildroot-x86 /work/divinus
 rsync -a --exclude=.git /repo/sources/firmware/general/ /work/output/firmware-general/
 rsync -a --exclude=.git /repo/buildroot/ /work/buildroot-x86/
