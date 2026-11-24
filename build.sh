@@ -9,6 +9,11 @@ fi
 # GENERAL's external.mk assumes a single external tree in BR2_EXTERNAL. Stage
 # its files and adapt that reference for a multi-external build; do not edit the
 # checkout. This staging also normalizes Windows checkouts' CRLF shell/Kconfig.
+# Stage the original external early-init overlay without changing its checkout.
+mkdir -p overlay-x86
+rsync -a --delete /overlay-source/overlay/ overlay-x86/
+find overlay-x86 -type f ! -name '.keep' -exec sed -i 's/\r$//' {} +
+chmod +x overlay-x86/init overlay-x86/usr/sbin/firstboot
 mkdir -p output/firmware-general
 rsync -a --delete /sources/firmware/general/ output/firmware-general/
 find output/firmware-general -type f \( -name '*.in' -o -name 'Config.in' -o -name '*.mk' -o -name '*.sh' -o -name '*.list' -o -name '*.awk' -o -name 'external.desc' \) -exec sed -i 's/\r$//' {} +
