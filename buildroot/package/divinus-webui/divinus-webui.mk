@@ -9,8 +9,9 @@ DIVINUS_WEBUI_LICENSE = MIT
 DIVINUS_WEBUI_LICENSE_FILES = LICENSE
 
 define DIVINUS_WEBUI_INSTALL_TARGET_CMDS
-	mkdir -p $(TARGET_DIR)/usr/share/divinus-webui
-	cp -a $(@D)/www/. $(TARGET_DIR)/usr/share/divinus-webui/
+	$(INSTALL) -d $(TARGET_DIR)/var/www/a
+	$(INSTALL) -m 644 $(@D)/www/index.html $(@D)/www/favicon.ico $(TARGET_DIR)/var/www/
+	$(INSTALL) -m 644 $(addprefix $(@D)/www/a/,divinus.js divinus.css bootstrap.min.css bootstrap.override.css logo.svg) $(TARGET_DIR)/var/www/a/
 endef
 
 $(eval $(generic-package))

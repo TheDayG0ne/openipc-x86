@@ -5,7 +5,7 @@ $entry = Get-Content -Raw (Join-Path $build 'buildroot-entrypoint.sh')
 $runner = Get-Content -Raw (Join-Path $build 'build.ps1')
 if (-not $entry.Contains('4235e198768df7d2696f49f28b090c08fed79954') -or -not $entry.Contains('c9620ac37e658d177821be85b4c9484e71e19710')) { throw 'Missing Buildroot tag or peeled commit pin' }
 $pins = @{
-    'sources/divinus' = '980b1831bf832c1c435eceac2229130bc044f44a'
+    'sources/divinus' = '10f24cc9a9b931cfa9ae2e10bc8907959e0f7216'
     'sources/firmware' = '9e6a05287f4fc17d914e621bcf824e89dbcb8b0c'
     'sources/divinus-webui' = 'a9efa2a5b6304b5a7539b4616dfa0d6cf4be42e6'
 }
@@ -23,6 +23,6 @@ if ($config -notmatch 'BR2_TARGET_ROOTFS_SQUASHFS=y' -or $config -notmatch 'BR2_
 if ($runner -notmatch 'rootfs\.squashfs' -or $runner -notmatch 'bzImage') { throw 'Missing artifact export' }
 $package = Get-Content -Raw (Join-Path $repo 'buildroot/package/divinus-webui/divinus-webui.mk')
 $external = Get-Content -Raw (Join-Path $repo 'buildroot/external.mk')
-if ($config -notmatch 'BR2_PACKAGE_DIVINUS_WEBUI=y' -or $external -notmatch 'package/\*/\*\.mk' -or $package -notmatch '\$\(eval \$\(generic-package\)\)' -or $package -notmatch '/usr/share/divinus-webui' -or $package -notmatch '\$\(@D\)/www/\.') { throw 'Missing WebUI Buildroot integration' }
-if ($entry -notmatch '/repo/sources/divinus-webui/' -or $entry -notmatch 'cmp ' -or $entry -notmatch '/usr/share/divinus-webui/') { throw 'Missing WebUI staging or asset checks' }
+if ($config -notmatch 'BR2_PACKAGE_DIVINUS_WEBUI=y' -or $external -notmatch 'package/\*/\*\.mk' -or $package -notmatch '\$\(eval \$\(generic-package\)\)' -or $package -notmatch '/var/www' -or $package -notmatch 'divinus\.js') { throw 'Missing WebUI Buildroot integration' }
+if ($config -notmatch 'board/post-build.sh' -or $entry -notmatch '/repo/sources/divinus-webui/' -or $entry -notmatch 'cmp ' -or $entry -notmatch '/var/www/' -or $entry -notmatch 'web_enable_auth: true') { throw 'Missing WebUI staging, configuration or asset checks' }
 Write-Host 'Static checks passed.'

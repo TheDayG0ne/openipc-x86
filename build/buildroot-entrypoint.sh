@@ -24,11 +24,16 @@ mkdir -p /work/divinus-webui
 rsync -a --exclude=.git /repo/sources/divinus-webui/ /work/divinus-webui/
 find /work/output/firmware-general /work/buildroot-x86 -type f \( -name '*.in' -o -name 'Config.in' -o -name '*.mk' -o -name '*.sh' -o -name '*.list' -o -name '*.awk' -o -name 'external.desc' \) -exec sed -i 's/\r$//' {} +
 sed -i 's/$(BR2_EXTERNAL)/$(BR2_EXTERNAL_GENERAL_PATH)/g' /work/output/firmware-general/external.mk
-chmod +x /work/output/firmware-general/scripts/rootfs_script.sh
+chmod +x /work/output/firmware-general/scripts/rootfs_script.sh /work/buildroot-x86/board/post-build.sh
 printf '%s\n' 'DIVINUS_OVERRIDE_SRCDIR = /work/divinus' > /work/output/local.mk
 make -C /work/buildroot O=/work/output BR2_EXTERNAL=/work/output/firmware-general:/work/buildroot-x86 openipc_x86_64_defconfig
 make -C /work/buildroot O=/work/output BR2_EXTERNAL=/work/output/firmware-general:/work/buildroot-x86 -j"${JOBS:-2}" all
 # Fail the pipeline if post-build processing removed or changed representative assets.
-for asset in index.html a/divinus.js a/divinus.css; do
-    cmp "/work/divinus-webui/www/$asset" "/work/output/target/usr/share/divinus-webui/$asset"
+[ -d /work/output/target/var/www ] && [ ! -L /work/output/target/var/www ]
+for asset in index.html favicon.ico a/divinus.js a/divinus.css a/bootstrap.min.css a/bootstrap.override.css a/logo.svg; do
+    [ ! -L "/work/output/target/var/www/$asset" ]
+    cmp "/work/divinus-webui/www/$asset" "/work/output/target/var/www/$asset"
 done
+grep -q '^  web_enable_static: true$' /work/output/target/etc/divinus.yaml
+grep -q '^  web_enable_auth: true$' /work/output/target/etc/divinus.yaml
+grep -q '^  web_auth_skiplocal: false$' /work/output/target/etc/divinus.yaml
