@@ -23,7 +23,7 @@ test -s "$INPUT/divinus"
 test -s /src/divinus.yaml
 debootstrap --arch=amd64 --variant=minbase bookworm "$ROOT" http://deb.debian.org/debian
 cp -L /etc/resolv.conf "$ROOT/etc/resolv.conf"
-chroot "$ROOT" bash -c 'apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends systemd-sysv linux-image-amd64 grub-pc-bin grub-common iproute2 kmod v4l-utils libavcodec59 libavformat59 libavutil57 libswscale6 libswresample4 ca-certificates && apt-get clean && rm -rf /var/lib/apt/lists/*'
+chroot "$ROOT" bash -c 'apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends systemd-sysv linux-image-amd64 grub-pc grub-pc-bin grub-common iproute2 kmod v4l-utils libavcodec59 libavformat59 libavutil57 libswscale6 libswresample4 ca-certificates && apt-get clean && rm -rf /var/lib/apt/lists/*'
 install -D -m755 "$INPUT/divinus" "$ROOT/usr/local/bin/divinus"
 install -D -m644 /src/divinus.yaml "$ROOT/usr/share/openipc/divinus.yaml"
 python3 - "$ROOT/usr/share/openipc/divinus.yaml" "$ROOT/etc/openipc" <<'PY'
@@ -95,10 +95,10 @@ cp -a "$ROOT"/. "$MOUNT"/
 mount --bind /dev "$MOUNT/dev"
 mount -t proc proc "$MOUNT/proc"
 mount --bind /sys "$MOUNT/sys"
+LOOP=$(losetup --find --show "$RAW")
 chroot "$MOUNT" grub-install --target=i386-pc --recheck "$LOOP"
 chroot "$MOUNT" update-grub
 umount -l "$MOUNT/sys" "$MOUNT/proc" "$MOUNT/dev" "$MOUNT"
-LOOP=$(losetup -j "$RAW" | cut -d: -f1 | head -1 || true)
 [ -z "$LOOP" ] || losetup -d "$LOOP"
 LOOP=''
 qemu-img convert -p -f raw -O vmdk "$RAW" "$TMP/openipc-x86.vmdk"
