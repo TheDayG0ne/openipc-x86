@@ -1,7 +1,6 @@
 #!/bin/sh
 # Run one camera-independent Divinus WebUI/API process and camera workers without
-# HTTP listeners. No reverse proxy is used: the central process serves static WebUI
-# and the API directly; workers retain only their RTSP endpoints.
+# HTTP listeners. Workers retain only their RTSP endpoints.
 
 DAEMON=${DAEMON:-/usr/bin/divinus}
 BASE=${BASE:-/var/lib/divinus-multi}
@@ -10,9 +9,14 @@ PIDS=${PIDS:-/var/run/divinus-multi}
 TEMPLATE=${TEMPLATE:-/etc/divinus.yaml}
 RUNTIME=${RUNTIME:-/run/divinus}
 MANIFEST=$RUNTIME/cameras.manifest
+STOP_TIMEOUT=${STOP_TIMEOUT:-5}
 
-[ -r "$CONF" ] || exit 0
-. "$CONF"
+# stop is deliberately useful during recovery even when the configuration was
+# removed. start still has the historical, quiet no-config behaviour.
+case "$1" in
+    stop|restart) ;;
+    *) [ -r "$CONF" ] || exit 0; . "$CONF" ;;
+esac
 
 umask 077
 pidfile() { echo "$PIDS/$1.pid"; }
@@ -36,18 +40,42 @@ owned_pid() {
     actual=$(starttime "$pid") || return 1
     [ "$actual" = "$started" ]
 }
+# /proc starttime guards against stale PID files, but checking then signalling
+# is not atomic: PID reuse between the check and kill remains possible. A zombie
+# may also keep its pidfile until reaped. This is not a pidfd-based supervisor.
 stop_one() {
-    p=$(pidfile "$1")
+    name=$1; p=$(pidfile "$name")
+    if ! owned_pid "$p"; then
+        rm -f "$p"
+        return 0
+    fi
+    read -r pid started < "$p" || return 1
+    if ! kill "$pid" 2>/dev/null; then
+        echo "divinus-multi: cannot stop $name (pid $pid); pidfile retained" >&2
+        return 1
+    fi
+    waited=0
+    while owned_pid "$p" && [ "$waited" -lt "$STOP_TIMEOUT" ]; do
+        sleep 1
+        waited=$((waited + 1))
+    done
     if owned_pid "$p"; then
-        kill "$pid" 2>/dev/null || true
+        echo "divinus-multi: timeout stopping $name (pid $pid); pidfile retained" >&2
+        return 1
     fi
     rm -f "$p"
+}
+stop_all() {
+    failed=0
+    stop_one central || failed=1
+    i=1
+    while [ "$i" -le 4 ]; do stop_one "camera-$i" || failed=1; i=$((i + 1)); done
+    [ "$failed" -eq 0 ]
 }
 secure_dir() {
     [ ! -L "$1" ] || return 1
     mkdir -p "$1" || return 1
     [ -d "$1" ] && [ ! -L "$1" ] || return 1
-    # Refuse directories owned by another user; never chmod an attacker's path.
     [ "$(stat -c %u "$1")" = "$(id -u)" ] || return 1
     chmod 700 "$1"
 }
@@ -56,21 +84,28 @@ record_child() {
     started=$(starttime "$child") || { kill "$child" 2>/dev/null || true; return 1; }
     printf '%s %s\n' "$child" "$started" > "$file" || { kill "$child" 2>/dev/null || true; rm -f "$file"; return 1; }
 }
-validate_port() {
-    name=$1; port=$2
-    case "$port" in *[!0-9]*|'') echo "divinus-multi: invalid $name port" >&2; return 1;; esac
-    [ "$port" -ge 1 ] 2>/dev/null && [ "$port" -le 65535 ] 2>/dev/null || { echo "divinus-multi: $name port out of range: $port" >&2; return 1; }
+# Store ports in canonical decimal form. This avoids shell arithmetic treating
+# values such as 008 as octal, and makes generated manifests deterministic.
+normalize_port() {
+    value=$2
+    case "$value" in ''|*[!0-9]*) echo "divinus-multi: invalid $1 port" >&2; return 1;; esac
+    while [ "${value#0}" != "$value" ]; do value=${value#0}; done
+    [ -n "$value" ] || value=0
+    [ "$value" -ge 1 ] 2>/dev/null && [ "$value" -le 65535 ] 2>/dev/null || { echo "divinus-multi: $1 port out of range: $2" >&2; return 1; }
+    NORMALIZED_PORT=$value
 }
 validate_config() {
-    validate_port web "$MULTI_WEB_PORT" || return 1
-    validate_port central-RTSP "$MULTI_RTSP_PORT_CENTRAL" || return 1
+    normalize_port web "$MULTI_WEB_PORT" || return 1; MULTI_WEB_PORT=$NORMALIZED_PORT
+    normalize_port central-RTSP "$MULTI_RTSP_PORT_CENTRAL" || return 1; MULTI_RTSP_PORT_CENTRAL=$NORMALIZED_PORT
+    [ "$MULTI_WEB_PORT" != "$MULTI_RTSP_PORT_CENTRAL" ] || { echo "divinus-multi: duplicate port $MULTI_WEB_PORT" >&2; return 1; }
     ports="$MULTI_WEB_PORT $MULTI_RTSP_PORT_CENTRAL"
     devices=""
     i=1
     while [ "$i" -le "$count" ]; do
         eval "rtsp=\${MULTI_RTSP_PORT_$i}"
         [ -n "$rtsp" ] || rtsp=$((553 + i))
-        validate_port "slot $i RTSP" "$rtsp" || return 1
+        normalize_port "slot $i RTSP" "$rtsp" || return 1; rtsp=$NORMALIZED_PORT
+        eval "MULTI_RTSP_PORT_$i=\$rtsp"
         case " $ports " in *" $rtsp "*) echo "divinus-multi: duplicate port $rtsp" >&2; return 1;; esac
         ports="$ports $rtsp"
         eval "device=\${MULTI_DEVICE_$i-}"
@@ -107,65 +142,64 @@ write_config() {
     cp "$DAEMON" "$dir/divinus" || return 1
 }
 start_central() {
-    dir="$BASE/central"
-    secure_dir "$dir" || return 1
-    write_config "$dir" "${MULTI_WEB_PORT:-80}" "${MULTI_RTSP_PORT_CENTRAL:-554}" "false" || return 1
-    # /dev/null is intentional: this process owns the dashboard/API, not a camera.
-    UVC_DEVICE=/dev/null "$dir/divinus" >"$dir/divinus.log" 2>&1 &
+    dir="$BASE/central"; secure_dir "$dir" || return 1
+    write_config "$dir" "$MULTI_WEB_PORT" "$MULTI_RTSP_PORT_CENTRAL" "false" || return 1
+    UVC_DEVICE=/dev/null "$dir/divinus" 9>&- >"$dir/divinus.log" 2>&1 &
     record_child "$!" "$(pidfile central)"
 }
 start_camera() {
-    n=$1; dev=$2; web=$3; rtsp=$4
+    n=$1; dev=$2; rtsp=$3
     [ -n "$rtsp" ] || rtsp=$((553 + n))
-    if [ -z "$dev" ] || [ ! -c "$dev" ]; then
-        echo "divinus-multi: camera $n absent ($dev), skipped" >&2
-        return 0
-    fi
-    dir="$BASE/camera-$n"
-    secure_dir "$dir" || return 1
-    # web_port 0 is Divinus' documented no-listener mode; only RTSP is exposed.
-    write_config "$dir" 0 "$rtsp" "true" || return 1
-    UVC_DEVICE="$dev" "$dir/divinus" >"$dir/divinus.log" 2>&1 &
+    if [ -z "$dev" ] || [ ! -c "$dev" ]; then echo "divinus-multi: camera $n absent ($dev), skipped" >&2; return 0; fi
+    dir="$BASE/camera-$n"; secure_dir "$dir" || return 1
+    write_config "$dir" 0 "$rtsp" true || return 1
+    UVC_DEVICE="$dev" "$dir/divinus" 9>&- >"$dir/divinus.log" 2>&1 &
     record_child "$!" "$(pidfile "camera-$n")"
 }
-
+acquire_lock() {
+    if command -v flock >/dev/null 2>&1; then
+        exec 9>"$PIDS/.lock" || return 1
+        flock -n 9 || { echo "divinus-multi: launcher busy" >&2; return 1; }
+        LOCK_FLOCK=1
+    else
+        # A mkdir lock is fail-closed if flock is unavailable: never reclaim it
+        # automatically, since checking an owner then removing it races another
+        # launcher. After a crash, an operator must verify no launcher is running
+        # before removing this empty directory.
+        mkdir "$PIDS/.lock" 2>/dev/null || { echo "divinus-multi: launcher busy or stale lock; check before removing $PIDS/.lock" >&2; return 1; }
+    fi
+    trap 'rmdir "$PIDS/.lock" 2>/dev/null || true' EXIT
+}
 case "$1" in
  start)
     secure_dir "$BASE" && secure_dir "$PIDS" && secure_dir "$RUNTIME" || { echo "divinus-multi: unsafe runtime directory" >&2; exit 1; }
-    mkdir "$PIDS/.lock" 2>/dev/null || { echo "divinus-multi: launcher busy" >&2; exit 1; }
-    trap 'rmdir "$PIDS/.lock" 2>/dev/null || true' EXIT
-    if owned_pid "$(pidfile central)"; then exit 0; fi
-    # Clear remnants of an interrupted run before starting a new transaction.
-    stop_one central
-    i=1; while [ "$i" -le 4 ]; do stop_one "camera-$i"; i=$((i + 1)); done
-    rm -f "$MANIFEST"
-    count=${MULTI_CAMERAS:-0}; [ "$count" -ge 0 ] 2>/dev/null || { echo "divinus-multi: invalid camera count" >&2; exit 1; }
+    acquire_lock || exit 1
+    if owned_pid "$(pidfile central)"; then echo "divinus-multi: central is already running; worker reconciliation is not implemented" >&2; exit 1; fi
+    count=${MULTI_CAMERAS:-0}; case "$count" in ''|*[!0-9]*) echo "divinus-multi: invalid camera count" >&2; exit 1;; esac
+    while [ "${count#0}" != "$count" ]; do count=${count#0}; done; [ -n "$count" ] || count=0
     [ "$count" -le 4 ] 2>/dev/null || { echo "divinus-multi: too many cameras" >&2; exit 1; }
-    MULTI_WEB_PORT=${MULTI_WEB_PORT:-80}
-    MULTI_RTSP_PORT_CENTRAL=${MULTI_RTSP_PORT_CENTRAL:-554}
+    MULTI_WEB_PORT=${MULTI_WEB_PORT:-80}; MULTI_RTSP_PORT_CENTRAL=${MULTI_RTSP_PORT_CENTRAL:-554}
     validate_config || exit 1
+    stop_all || { echo "divinus-multi: refusing to start after incomplete stop" >&2; exit 1; }
+    rm -f "$MANIFEST"
     write_manifest || exit 1
     if ! start_central; then rm -f "$MANIFEST"; exit 1; fi
     i=1
     while [ "$i" -le "$count" ]; do
-        eval "dev=\${MULTI_DEVICE_$i}"; eval "rtsp=\${MULTI_RTSP_PORT_$i}"
-        if ! start_camera "$i" "$dev" "0" "$rtsp"; then
-            stop_one central
-            j=1; while [ "$j" -le 4 ]; do stop_one "camera-$j"; j=$((j + 1)); done
-            rm -f "$MANIFEST"
-            exit 1
-        fi
+        eval "dev=\${MULTI_DEVICE_$i-}"; eval "rtsp=\${MULTI_RTSP_PORT_$i}"
+        if ! start_camera "$i" "$dev" "$rtsp"; then stop_all || true; rm -f "$MANIFEST"; exit 1; fi
         i=$((i + 1))
     done
     ;;
  stop)
     secure_dir "$PIDS" && secure_dir "$RUNTIME" || { echo "divinus-multi: unsafe runtime directory" >&2; exit 1; }
-    mkdir "$PIDS/.lock" 2>/dev/null || { echo "divinus-multi: launcher busy" >&2; exit 1; }
-    trap 'rmdir "$PIDS/.lock" 2>/dev/null || true' EXIT
-    stop_one central
-    i=1; while [ "$i" -le 4 ]; do stop_one "camera-$i"; i=$((i + 1)); done
+    acquire_lock || exit 1
+    stop_all || exit 1
     rm -f "$MANIFEST" "$RUNTIME/cameras.manifest.tmp.$$"
     ;;
- restart) "$0" stop; sleep 1; "$0" start ;;
- *) echo "Usage: $0 {start|stop|restart}" >&2; exit 1 ;;
- esac
+ restart)
+    "$0" stop || { echo "divinus-multi: restart aborted because stop failed" >&2; exit 1; }
+    "$0" start
+    ;;
+ *) echo "Usage: $0 {start|stop|restart}" >&2; exit 1;;
+esac

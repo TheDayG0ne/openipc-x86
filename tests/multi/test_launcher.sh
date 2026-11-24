@@ -82,4 +82,55 @@ run_launcher stop
 [ ! -e "$TMP/pids/central.pid" ]
 [ ! -e "$TMP/pids/camera-1.pid" ]
 [ ! -e "$TMP/runtime/cameras.manifest" ]
+# Missing config must not prevent stopping an existing run.
+run_launcher start
+mv "$TMP/etc/divinus-multi.conf" "$TMP/etc/saved.conf"
+run_launcher stop
+[ ! -e "$TMP/pids/central.pid" ]
+mv "$TMP/etc/saved.conf" "$TMP/etc/divinus-multi.conf"
+
+# A live foreign PID with a stale start time must never receive a signal.
+sleep 1000 &
+foreign=$!
+printf '%s 0\n' "$foreign" > "$TMP/pids/central.pid"
+run_launcher stop
+kill -0 "$foreign"
+kill "$foreign"
+wait "$foreign" 2>/dev/null || true
+
+# Refuse a second start, rather than claiming workers were reconciled.
+run_launcher start
+if run_launcher start; then echo 'second start unexpectedly succeeded' >&2; exit 1; fi
+run_launcher stop
+
+# Decimal normalization applies to both collision detection and output.
+sed 's/MULTI_RTSP_PORT_1=555/MULTI_RTSP_PORT_1=00554/' "$TMP/etc/divinus-multi.conf" > "$TMP/etc/bad"
+mv "$TMP/etc/bad" "$TMP/etc/divinus-multi.conf"
+if run_launcher start; then echo 'duplicate port accepted' >&2; exit 1; fi
+sed 's/MULTI_RTSP_PORT_1=00554/MULTI_RTSP_PORT_1=00555/' "$TMP/etc/divinus-multi.conf" > "$TMP/etc/good"
+mv "$TMP/etc/good" "$TMP/etc/divinus-multi.conf"
+run_launcher start
+grep -q '^slot=1 rtsp_port=555$' "$TMP/runtime/cameras.manifest"
+run_launcher stop
+
+# A worker setup failure rolls back a previously started central process.
+rm -rf "$TMP/base/camera-1"
+ln -s "$TMP/dev" "$TMP/base/camera-1"
+if run_launcher start; then echo 'rollback test unexpectedly succeeded' >&2; exit 1; fi
+[ ! -e "$TMP/pids/central.pid" ]
+[ ! -e "$TMP/runtime/cameras.manifest" ]
+rm "$TMP/base/camera-1"
+
+# A TERM-ignoring process forces a timeout. restart must not start a new run.
+sh -c 'trap "" TERM; exec sleep 1000' &
+stubborn=$!
+stat=$(cat "/proc/$stubborn/stat"); stat=${stat##*) }; set -- $stat; shift 19
+printf '%s %s\n' "$stubborn" "$1" > "$TMP/pids/central.pid"
+sleep 1
+if STOP_TIMEOUT=1 run_launcher restart; then kill -KILL "$stubborn"; echo 'restart unexpectedly succeeded' >&2; exit 1; fi
+[ -f "$TMP/pids/central.pid" ]
+kill -0 "$stubborn"
+kill -KILL "$stubborn"
+wait "$stubborn" 2>/dev/null || true
+run_launcher stop
 printf '%s\n' 'multi-camera launcher policy tests: PASS'
