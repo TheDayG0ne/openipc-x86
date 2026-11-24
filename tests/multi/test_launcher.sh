@@ -10,7 +10,7 @@ mkdir -p "$TMP/bin" "$TMP/etc" "$TMP/dev" "$TMP/base" "$TMP/pids"
 cat > "$TMP/bin/divinus" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$UVC_DEVICE" >> "${FAKE_OUT:?}/devices"
-cp "${FAKE_TEMPLATE:?}" "$FAKE_OUT/config-${UVC_DEVICE##*/}"
+cp "$(dirname "$0")/divinus.yaml" "$FAKE_OUT/config-${UVC_DEVICE##*/}"
 exit 0
 EOF
 chmod +x "$TMP/bin/divinus"
