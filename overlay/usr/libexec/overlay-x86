@@ -1,0 +1,25 @@
+#!/bin/sh
+# Shared store policy. Called only with a private, mounted store.
+ovl_prepare() {
+    store=$1
+    [ -f "$store/.overlay-x86-store" ] && [ ! -L "$store/.overlay-x86-store" ] || return 1
+    [ "$(cat "$store/.overlay-x86-store")" = 'overlay-x86-v1' ] || return 1
+    [ ! -L "$store/upper" ] && [ ! -L "$store/work" ] && [ ! -L "$store/.reset" ] || return 1
+    # Do not traverse mounted filesystems during reset.
+    if [ -e "$store/.reset" ]; then
+        [ -f "$store/.reset" ] || return 1
+        awk -v p="$store/" 'index($2,p)==1 {bad=1} END {exit bad}' /proc/mounts || return 1
+        for d in upper work; do
+            [ ! -e "$store/$d" ] || [ -d "$store/$d" ] || return 1
+        done
+        rm -rf "$store/upper" "$store/work" || return 1
+        sync || return 1
+        rm -f "$store/.reset" || return 1
+        sync || return 1
+    fi
+    for d in upper work; do
+        [ ! -L "$store/$d" ] || return 1
+        [ ! -e "$store/$d" ] || [ -d "$store/$d" ] || return 1
+        mkdir -p "$store/$d" || return 1
+    done
+}
