@@ -6,7 +6,7 @@ $image = "openipc-x86-builder:$id"
 $output = Join-Path $PSScriptRoot "artifacts-$id"
 function Check-Exit { if ($LASTEXITCODE -ne 0) { throw "Command failed with exit code $LASTEXITCODE. Container, if created: $container" } }
 
-git -C $repo submodule update --init --recursive
+git -c core.longpaths=true -C $repo submodule update --init --recursive
 Check-Exit
 docker build -t $image $PSScriptRoot
 Check-Exit

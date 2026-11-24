@@ -10,7 +10,7 @@ On Windows install Git, PowerShell and Docker Desktop using Linux containers. Fr
 ./build/build.ps1
 ```
 
-The script initializes the pinned submodules recursively and runs the existing Buildroot build in an isolated Docker container. Network access and substantial free disk space are required. Optionally set `$env:JOBS = '4'` before running. On success, files are copied to a new `build/artifacts-<id>/` directory. The container is removed; its uniquely tagged builder image remains. On failure the container, if created, remains for diagnosis (`docker logs <name>`); remove it and its image manually when appropriate. No Docker-wide pruning is performed. The checkout is mounted read-only and copied into the container; tracked and uncommitted working-tree changes are inputs, so use a clean checkout for reproducibility. Docker Desktop must be allowed to share the checkout drive.
+The script initializes the pinned submodules recursively and runs the existing Buildroot build in an isolated Docker container. Git for Windows must support long paths; use a short checkout path and, if needed, enable Windows long-path support. Network access and substantial free disk space are required. Optionally set `$env:JOBS = '4'` before running. On success, files are copied to a new `build/artifacts-<id>/` directory. The container is removed; its uniquely tagged builder image remains. On failure the container, if created, remains for diagnosis (`docker logs <name>`); remove it and its image manually when appropriate. No Docker-wide pruning is performed. The checkout is mounted read-only and copied into the container; tracked and uncommitted working-tree changes are inputs, so use a clean checkout for reproducibility. Docker Desktop must be allowed to share the checkout drive.
 
 ## Sources
 
@@ -18,8 +18,7 @@ The script initializes the pinned submodules recursively and runs the existing B
 | --- | --- | --- |
 | `sources/divinus` | https://github.com/TheDayG0ne/divinus.git | `980b1831bf832c1c435eceac2229130bc044f44a` |
 | `sources/firmware` | https://github.com/OpenIPC/firmware.git | `9e6a05287f4fc17d914e621bcf824e89dbcb8b0c` |
-| `sources/majestic-webui` | https://github.com/OpenIPC/majestic-webui.git | `2c15ce5532986272092eb7c4f8e945b71a7681ca` |
 
-The build uses Divinus and firmware; majestic-webui is provided as source, not integrated into this build. Submodule contents and configuration remain upstream. Buildroot itself is fetched at `4235e198768df7d2696f49f28b090c08fed79954` (2024.02.10). The Debian base image, apt packages and other Buildroot downloads are not all pinned, so this is not a guarantee of bit-identical results. Review source licenses and independently verify upstreams.
+The build uses Divinus and firmware. Web UI integration is expected later: `sources/divinus-webui` will be added after the public `https://github.com/TheDayG0ne/divinus-webui.git` fork is available; it is not included or integrated yet. Submodule contents and configuration remain upstream. Buildroot itself is fetched at `4235e198768df7d2696f49f28b090c08fed79954` (2024.02.10). The Debian base image, apt packages and other Buildroot downloads are not all pinned, so this is not a guarantee of bit-identical results. Review source licenses and independently verify upstreams.
 
 `buildroot/`, `overlay/`, `image/` and `tests/` retain their own documentation; some describe separate experimental workflows, not the result of the command above. See [build/README.md](build/README.md) for checks and details.
