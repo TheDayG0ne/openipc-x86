@@ -9,13 +9,13 @@ cleanup() {
     # processes outside the launcher pidfiles owned by this temporary run.
     if [ -f "$TMP/etc/divinus-multi.conf" ]; then
         FAKE_OUT="$TMP" DAEMON="$TMP/bin/divinus" TEMPLATE="$TMP/etc/divinus.yaml" \
-            BASE="$TMP/base" PIDS="$TMP/pids" CONF="$TMP/etc/divinus-multi.conf" \
+            BASE="$TMP/base" PIDS="$TMP/pids" RUNTIME="$TMP/runtime" CONF="$TMP/etc/divinus-multi.conf" \
             "$LAUNCHER" stop >/dev/null 2>&1 || true
     fi
     rm -rf "$TMP"
 }
 trap cleanup EXIT
-mkdir -p "$TMP/bin" "$TMP/etc" "$TMP/dev" "$TMP/base" "$TMP/pids"
+mkdir -p "$TMP/bin" "$TMP/etc" "$TMP/dev" "$TMP/base" "$TMP/pids" "$TMP/runtime"
 
 cat > "$TMP/bin/divinus" <<'EOF'
 #!/bin/sh
@@ -43,7 +43,7 @@ EOF
 
 run_launcher() {
     FAKE_OUT="$TMP" DAEMON="$TMP/bin/divinus" TEMPLATE="$TMP/etc/divinus.yaml" \
-        BASE="$TMP/base" PIDS="$TMP/pids" CONF="$TMP/etc/divinus-multi.conf" \
+        BASE="$TMP/base" PIDS="$TMP/pids" RUNTIME="$TMP/runtime" CONF="$TMP/etc/divinus-multi.conf" \
         "$LAUNCHER" "$1"
 }
 
@@ -56,6 +56,9 @@ run_launcher start
 [ ! -e "$TMP/pids/camera-2.pid" ]
 [ -s "$TMP/base/central/divinus.yaml" ]
 [ -s "$TMP/base/camera-1/divinus.yaml" ]
+[ -s "$TMP/runtime/cameras.manifest" ]
+grep -q '^slot=1 rtsp_port=555$' "$TMP/runtime/cameras.manifest"
+grep -q '^slot=2 rtsp_port=556$' "$TMP/runtime/cameras.manifest"
 
 # Check the generated YAML in each worker directory.  In particular, camera 1
 # must not receive the central web/RTSP settings or lose unrelated YAML keys.
@@ -78,4 +81,5 @@ grep -q '^  udp_srcport: 5600$' "$TMP/base/camera-1/divinus.yaml"
 run_launcher stop
 [ ! -e "$TMP/pids/central.pid" ]
 [ ! -e "$TMP/pids/camera-1.pid" ]
+[ ! -e "$TMP/runtime/cameras.manifest" ]
 printf '%s\n' 'multi-camera launcher policy tests: PASS'

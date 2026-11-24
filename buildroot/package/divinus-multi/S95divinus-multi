@@ -8,6 +8,8 @@ BASE=${BASE:-/var/lib/divinus-multi}
 CONF=${CONF:-/etc/divinus-multi.conf}
 PIDS=${PIDS:-/var/run/divinus-multi}
 TEMPLATE=${TEMPLATE:-/etc/divinus.yaml}
+RUNTIME=${RUNTIME:-/run/divinus}
+MANIFEST=$RUNTIME/cameras.manifest
 
 [ -r "$CONF" ] || exit 0
 . "$CONF"
@@ -20,21 +22,43 @@ stop_one() {
     kill "$pid" 2>/dev/null || true
     rm -f "$p"
 }
-write_manifest() {
-    tmp="/run/divinus/cameras.manifest.tmp.$$"
-    : > "$tmp" || return 1
+validate_port() {
+    name=$1; port=$2
+    case "$port" in *[!0-9]*|'') echo "divinus-multi: invalid $name port" >&2; return 1;; esac
+    [ "$port" -ge 1 ] 2>/dev/null && [ "$port" -le 65535 ] 2>/dev/null || { echo "divinus-multi: $name port out of range: $port" >&2; return 1; }
+}
+validate_config() {
+    validate_port web "$MULTI_WEB_PORT" || return 1
+    validate_port central-RTSP "$MULTI_RTSP_PORT_CENTRAL" || return 1
+    ports="$MULTI_WEB_PORT $MULTI_RTSP_PORT_CENTRAL"
+    devices=""
     i=1
     while [ "$i" -le "$count" ]; do
         eval "rtsp=\${MULTI_RTSP_PORT_$i}"
         [ -n "$rtsp" ] || rtsp=$((553 + i))
-        case "$rtsp" in *[!0-9]*|'') return 1;; esac
-        [ "$rtsp" -ge 1 ] 2>/dev/null && [ "$rtsp" -le 65535 ] 2>/dev/null || return 1
-        printf 'slot=%s rtsp_port=%s\n' "$i" "$rtsp" >> "$tmp" || return 1
+        validate_port "slot $i RTSP" "$rtsp" || return 1
+        case " $ports " in *" $rtsp "*) echo "divinus-multi: duplicate port $rtsp" >&2; return 1;; esac
+        ports="$ports $rtsp"
+        eval "device=\${MULTI_DEVICE_$i-}"
+        if [ -n "$device" ]; then
+            case " $devices " in *" $device "*) echo "divinus-multi: duplicate device in slot $i: $device" >&2; return 1;; esac
+            devices="$devices $device"
+        fi
         i=$((i + 1))
     done
-    chown 0:0 "$tmp" 2>/dev/null || return 1
-    chmod 600 "$tmp" || return 1
-    mv -f "$tmp" /run/divinus/cameras.manifest || return 1
+}
+write_manifest() {
+    tmp=$(mktemp "$RUNTIME/cameras.manifest.tmp.XXXXXX") || return 1
+    i=1
+    while [ "$i" -le "$count" ]; do
+        eval "rtsp=\${MULTI_RTSP_PORT_$i}"
+        [ -n "$rtsp" ] || rtsp=$((553 + i))
+        printf 'slot=%s rtsp_port=%s\n' "$i" "$rtsp" >> "$tmp" || { rm -f "$tmp"; return 1; }
+        i=$((i + 1))
+    done
+    chown 0:0 "$tmp" 2>/dev/null || true
+    chmod 600 "$tmp" || { rm -f "$tmp"; return 1; }
+    mv -f "$tmp" "$MANIFEST" || { rm -f "$tmp"; return 1; }
 }
 write_config() {
     dir=$1; web=$2; rtsp=$3; rtsp_enable=$4
@@ -73,9 +97,12 @@ start_camera() {
 
 case "$1" in
  start)
-    mkdir -p "$BASE" "$PIDS" /run/divinus
-    count=${MULTI_CAMERAS:-0}; [ "$count" -ge 0 ] 2>/dev/null || count=0
-    [ "$count" -le 4 ] 2>/dev/null || count=4
+    mkdir -p "$BASE" "$PIDS" "$RUNTIME" || exit 1
+    count=${MULTI_CAMERAS:-0}; [ "$count" -ge 0 ] 2>/dev/null || { echo "divinus-multi: invalid camera count" >&2; exit 1; }
+    [ "$count" -le 4 ] 2>/dev/null || { echo "divinus-multi: too many cameras" >&2; exit 1; }
+    MULTI_WEB_PORT=${MULTI_WEB_PORT:-80}
+    MULTI_RTSP_PORT_CENTRAL=${MULTI_RTSP_PORT_CENTRAL:-554}
+    validate_config || exit 1
     write_manifest || exit 1
     start_central
     i=1
@@ -88,7 +115,7 @@ case "$1" in
  stop)
     stop_one central
     i=1; while [ "$i" -le 4 ]; do stop_one "camera-$i"; i=$((i + 1)); done
-    rm -f /run/divinus/cameras.manifest /run/divinus/cameras.manifest.tmp.*
+    rm -f "$MANIFEST" "$RUNTIME/cameras.manifest.tmp.$$"
     ;;
  restart) "$0" stop; sleep 1; "$0" start ;;
  *) echo "Usage: $0 {start|stop|restart}" >&2; exit 1 ;;
