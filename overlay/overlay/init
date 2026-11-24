@@ -1,0 +1,55 @@
+#!/bin/sh
+# Early init for a read-only x86 root. Never format or repair a disk.
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+export PATH
+. /usr/libexec/overlay-x86
+
+fail() {
+    echo "overlay-x86: $*; starting emergency shell" >&2
+    exec /bin/sh
+}
+
+mount -t proc proc /proc || fail 'cannot mount proc'
+mount -t devtmpfs devtmpfs /dev || fail 'cannot mount devtmpfs'
+# Avoid ever mounting the root device writable as the data store.
+awk '$2 == "/" && $3 == "squashfs" && $4 ~ /(^|,)ro(,|$)/ {ok=1} END {exit !ok}' /proc/mounts || fail 'root must be read-only squashfs'
+# The lower squashfs is read-only: these mountpoints must exist in the image.
+for d in /overlay /mnt /rom; do
+    [ -d "$d" ] && [ ! -L "$d" ] || fail "missing or unsafe mountpoint $d"
+done
+
+device=
+seen=
+# Kernel arguments are words, not pathname patterns.
+set -f
+for arg in $(cat /proc/cmdline); do
+    case "$arg" in overlay.x86=*)
+        [ -z "$seen" ] || fail 'duplicate overlay.x86'
+        seen=1
+        device=${arg#overlay.x86=}
+        ;;
+    esac
+done
+set +f
+case "$device" in
+    PARTUUID=*)
+        mount -t sysfs sysfs /sys || fail 'cannot mount sysfs'
+        # Give asynchronous controllers time to discover disks before the one scan.
+        sleep 5
+        device=$(ovl_resolve_partuuid "${device#PARTUUID=}") || fail 'PARTUUID absent, ambiguous or unreadable'
+        umount /sys || fail 'cannot unmount sysfs'
+        ;;
+    /dev/*) ;;
+    *) fail 'overlay.x86 must name a /dev block device or MBR PARTUUID' ;;
+esac
+[ -b "$device" ] || fail 'overlay device absent or not a block device'
+# Explicit provisioning is mandatory; an unmountable disk is never reformatted.
+mount -t ext4 -o rw,nodev,nosuid "$device" /overlay || fail 'cannot mount persistent ext4'
+ovl_prepare /overlay || fail 'invalid or incomplete overlay store'
+mount -t overlay overlay -o lowerdir=/,upperdir=/overlay/upper,workdir=/overlay/work /mnt || fail 'cannot mount overlayfs'
+mkdir -p /mnt/rom /mnt/overlay /mnt/proc /mnt/dev
+pivot_root /mnt /mnt/rom || fail 'pivot_root failed'
+mount --move /rom/proc /proc || fail 'moving proc failed'
+mount --move /rom/dev /dev || fail 'moving dev failed'
+mount --move /rom/overlay /overlay || fail 'moving overlay store failed'
+exec /sbin/init

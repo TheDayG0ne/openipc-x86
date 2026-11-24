@@ -1,0 +1,13 @@
+#!/bin/sh
+# Queue a reset for next boot; never remove the live overlay.
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+export PATH
+[ "$#" -eq 1 ] && [ "$1" = '--reset' ] || { echo 'Usage: firstboot --reset' >&2; exit 2; }
+[ "$(id -u)" = 0 ] || { echo 'firstboot: root required' >&2; exit 1; }
+# Require both the live overlay and its persistent backing mount.
+awk '$2 == "/" && $3 == "overlay" {o=1} $2 == "/overlay" && $3 == "ext4" && $4 ~ /(^|,)rw(,|$)/ {d=1} END {exit !(o && d)}' /proc/mounts || { echo 'firstboot: persistent overlay not active' >&2; exit 1; }
+[ -f /overlay/.overlay-x86-store ] && [ ! -L /overlay/.overlay-x86-store ] && [ "$(cat /overlay/.overlay-x86-store)" = overlay-x86-v1 ] || exit 1
+[ ! -L /overlay/.reset ] && [ ! -e /overlay/.reset ] || { echo 'firstboot: reset already queued or unsafe marker' >&2; exit 1; }
+( umask 077; set -C; : > /overlay/.reset ) || exit 1
+sync || exit 1
+echo 'Reset queued; reboot to apply. All persistent overlay changes will be lost.'
