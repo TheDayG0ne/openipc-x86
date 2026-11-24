@@ -1,16 +1,17 @@
 $ErrorActionPreference = 'Stop'
-foreach ($name in @('BUILDROOT_X86_URL', 'OVERLAY_X86_URL', 'DISK_IMAGE_X86_URL')) {
-    if (-not [Environment]::GetEnvironmentVariable($name)) { throw "Set $name to a Git URL containing the pinned commit; see README.md." }
-}
+$repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $id = [guid]::NewGuid().ToString('N')
 $container = "openipc-x86-$id"
 $image = "openipc-x86-builder:$id"
 $output = Join-Path $PSScriptRoot "artifacts-$id"
 function Check-Exit { if ($LASTEXITCODE -ne 0) { throw "Command failed with exit code $LASTEXITCODE. Container, if created: $container" } }
+
+git -C $repo submodule update --init --recursive
+Check-Exit
 docker build -t $image $PSScriptRoot
 Check-Exit
-# A fresh container writable layer makes simultaneous builds independent.
-docker run --name $container -e BUILDROOT_X86_URL -e OVERLAY_X86_URL -e DISK_IMAGE_X86_URL -e JOBS $image
+# Sources and the external Buildroot tree are read-only inputs from this checkout.
+docker run --name $container -v "${repo}:/repo:ro" -e JOBS $image
 Check-Exit
 New-Item -ItemType Directory -Path $output | Out-Null
 docker cp "${container}:/work/output/images/bzImage" $output
@@ -19,4 +20,4 @@ docker cp "${container}:/work/output/images/rootfs.ext4" $output
 Check-Exit
 docker rm $container | Out-Null
 Check-Exit
-Write-Host "Artifacts: $output"
+Write-Host "Artifacts: $output (kernel and ext4 root filesystem; no disk image)"

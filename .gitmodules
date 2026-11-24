@@ -1,0 +1,9 @@
+[submodule "sources/divinus"]
+	path = sources/divinus
+	url = https://github.com/TheDayG0ne/divinus.git
+[submodule "sources/firmware"]
+	path = sources/firmware
+	url = https://github.com/OpenIPC/firmware.git
+[submodule "sources/majestic-webui"]
+	path = sources/majestic-webui
+	url = https://github.com/OpenIPC/majestic-webui.git
