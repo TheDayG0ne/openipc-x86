@@ -21,4 +21,8 @@ if ($entry -match 'BUILDROOT_X86_URL|OVERLAY_X86_URL|DISK_IMAGE_X86_URL') { thro
 $config = Get-Content -Raw (Join-Path $repo 'buildroot/configs/openipc_x86_64_defconfig')
 if ($config -notmatch 'BR2_TARGET_ROOTFS_SQUASHFS=y' -or $config -notmatch 'BR2_EXTERNAL_X86_PATH\)/overlay-x86' -or $entry -notmatch '/repo/overlay/overlay/') { throw 'Missing squashfs or overlay integration' }
 if ($runner -notmatch 'rootfs\.squashfs' -or $runner -notmatch 'bzImage') { throw 'Missing artifact export' }
+$package = Get-Content -Raw (Join-Path $repo 'buildroot/package/divinus-webui/divinus-webui.mk')
+$external = Get-Content -Raw (Join-Path $repo 'buildroot/external.mk')
+if ($config -notmatch 'BR2_PACKAGE_DIVINUS_WEBUI=y' -or $external -notmatch 'package/\*/\*\.mk' -or $package -notmatch '\$\(eval \$\(generic-package\)\)' -or $package -notmatch '/usr/share/divinus-webui' -or $package -notmatch '\$\(@D\)/www/\.') { throw 'Missing WebUI Buildroot integration' }
+if ($entry -notmatch '/repo/sources/divinus-webui/' -or $entry -notmatch 'cmp ' -or $entry -notmatch '/usr/share/divinus-webui/') { throw 'Missing WebUI staging or asset checks' }
 Write-Host 'Static checks passed.'

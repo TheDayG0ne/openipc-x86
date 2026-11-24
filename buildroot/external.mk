@@ -1,3 +1,5 @@
+include $(sort $(wildcard $(BR2_EXTERNAL_X86_PATH)/package/*/*.mk))
+
 ifeq ($(BR2_PACKAGE_X86_DIVINUS_FFMPEG),y)
 $(DIVINUS_DIR)/.stamp_configured: ffmpeg x264 host-pkgconf
 DIVINUS_OPTIONS = "$(TARGET_CFLAGS) $(TARGET_LDFLAGS) -DDIVINUS_V4L2 -lm -ldl -lpthread"

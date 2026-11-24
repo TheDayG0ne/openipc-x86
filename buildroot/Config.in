@@ -1,3 +1,8 @@
+config BR2_PACKAGE_DIVINUS_WEBUI
+	bool "Divinus WebUI static files"
+	help
+	  Install the WebUI www tree for Divinus to serve.
+
 config BR2_PACKAGE_X86_DIVINUS_FFMPEG
 	bool "Divinus UVC FFmpeg support"
 	depends on BR2_PACKAGE_DIVINUS
