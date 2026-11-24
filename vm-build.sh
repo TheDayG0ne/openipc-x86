@@ -8,6 +8,8 @@ ROOT="$TMP/rootfs"
 RAW="$TMP/openipc-x86.raw"
 MOUNT="$TMP/mnt"
 LOOP=''
+PART=''
+PART_NODE_CREATED=''
 cleanup() {
   set +e
   mountpoint -q "$MOUNT/sys" && umount -l "$MOUNT/sys"
@@ -15,6 +17,7 @@ cleanup() {
   mountpoint -q "$MOUNT/dev" && umount -l "$MOUNT/dev"
   mountpoint -q "$MOUNT" && umount -l "$MOUNT"
   [ -z "$LOOP" ] || losetup -d "$LOOP"
+  [ -z "$PART_NODE_CREATED" ] || rm -f -- "$PART_NODE_CREATED"
   rm -rf -- "$TMP"
 }
 trap cleanup EXIT
@@ -112,18 +115,53 @@ chroot "$ROOT" useradd --system --create-home --shell /usr/sbin/nologin openipc 
 chroot "$ROOT" systemctl enable systemd-networkd.service systemd-resolved.service
 truncate -s 4G "$RAW"
 parted -s "$RAW" mklabel msdos mkpart primary ext4 1MiB 100%
-mkfs.ext4 -F -L openipc-root -E offset=1048576 "$RAW"
-mount -o loop,offset=1048576 "$RAW" "$MOUNT"
+LOOP=$(losetup --find --show --partscan "$RAW")
+PART="${LOOP}p1"
+PART_SYS="/sys/class/block/${PART##*/}"
+if [ ! -r "$PART_SYS/dev" ]; then
+  echo "Partition device not exposed by kernel: $PART" >&2
+  exit 1
+fi
+IFS=: read -r major minor < "$PART_SYS/dev"
+if [ ! -e "$PART" ]; then
+  mknod "$PART" b "$major" "$minor"
+  PART_NODE_CREATED=$PART
+fi
+[ -b "$PART" ] && [ "$(stat -c '%t:%T' "$PART")" = "$(printf '%x:%x' "$major" "$minor")" ] || { echo "Unexpected partition device: $PART" >&2; exit 1; }
+[ "$(cat "$PART_SYS/start")" = 2048 ] || { echo 'Unexpected partition start' >&2; exit 1; }
+[ "$(cat "$PART_SYS/size")" = 8386560 ] || { echo 'Unexpected partition size' >&2; exit 1; }
+mkfs.ext4 -F -L openipc-root -O ^64bit,^metadata_csum "$PART"
+mount "$PART" "$MOUNT"
 cp -a "$ROOT"/. "$MOUNT"/
 mount --bind /dev "$MOUNT/dev"
 mount -t proc proc "$MOUNT/proc"
 mount --bind /sys "$MOUNT/sys"
-LOOP=$(losetup --find --show "$RAW")
-chroot "$MOUNT" grub-install --target=i386-pc --recheck "$LOOP"
-chroot "$MOUNT" update-grub
-umount -l "$MOUNT/sys" "$MOUNT/proc" "$MOUNT/dev" "$MOUNT"
-[ -z "$LOOP" ] || losetup -d "$LOOP"
+mkdir -p "$MOUNT/boot/grub"
+printf '(hd0) %s\n' "$LOOP" > "$MOUNT/boot/grub/device.map"
+chroot "$MOUNT" grub-install --target=i386-pc --boot-directory=/boot --recheck "$LOOP"
+kernel=$(basename "$(find "$MOUNT/boot" -maxdepth 1 -name 'vmlinuz-*' -type f | sort -V | tail -n1)")
+version=${kernel#vmlinuz-}
+test -n "$version" && test -s "$MOUNT/boot/initrd.img-$version"
+uuid=$(blkid -s UUID -o value "$PART")
+test -n "$uuid"
+cat > "$MOUNT/boot/grub/grub.cfg" <<GRUBCFG
+set timeout=1
+serial --speed=115200 --unit=0 --word=8 --parity=no --stop=1
+terminal_input serial console
+terminal_output serial console
+menuentry 'OpenIPC x86' {
+    search --no-floppy --fs-uuid --set=root $uuid
+    linux /boot/$kernel root=UUID=$uuid ro console=ttyS0,115200n8 systemd.unit=multi-user.target
+    initrd /boot/initrd.img-$version
+}
+GRUBCFG
+chroot "$MOUNT" grub-script-check /boot/grub/grub.cfg
+sync
+umount "$MOUNT/sys" "$MOUNT/proc" "$MOUNT/dev" "$MOUNT"
+losetup -d "$LOOP"
 LOOP=''
+[ -z "$PART_NODE_CREATED" ] || rm -f -- "$PART_NODE_CREATED"
+PART_NODE_CREATED=''
 qemu-img convert -p -f raw -O vmdk "$RAW" "$TMP/openipc-x86.vmdk"
 qemu-img info "$TMP/openipc-x86.vmdk"
 ( set -C; cat "$TMP/openipc-x86.vmdk" > "$OUT/openipc-x86.vmdk" )
