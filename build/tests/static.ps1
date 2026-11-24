@@ -7,7 +7,7 @@ if (-not $entry.Contains('4235e198768df7d2696f49f28b090c08fed79954')) { throw 'M
 $pins = @{
     'sources/divinus' = '980b1831bf832c1c435eceac2229130bc044f44a'
     'sources/firmware' = '9e6a05287f4fc17d914e621bcf824e89dbcb8b0c'
-    'sources/divinus-webui' = '8038ba99524053329171473a71c30c8fb5735646'
+    'sources/divinus-webui' = 'a9efa2a5b6304b5a7539b4616dfa0d6cf4be42e6'
 }
 foreach ($path in $pins.Keys) {
     $record = git -C $repo ls-files --stage -- $path
