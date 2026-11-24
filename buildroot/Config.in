@@ -1,0 +1,8 @@
+config BR2_PACKAGE_X86_DIVINUS_FFMPEG
+	bool "Divinus UVC FFmpeg support"
+	depends on BR2_PACKAGE_DIVINUS
+	select BR2_PACKAGE_FFMPEG
+	select BR2_PACKAGE_FFMPEG_SWSCALE
+	select BR2_PACKAGE_X264
+	help
+	  Build the local UVC-enabled Divinus with FFmpeg and x264.
