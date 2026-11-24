@@ -4,3 +4,6 @@
 [submodule "sources/firmware"]
 	path = sources/firmware
 	url = https://github.com/OpenIPC/firmware.git
+[submodule "sources/divinus-webui"]
+	path = sources/divinus-webui
+	url = https://github.com/TheDayG0ne/divinus-webui.git

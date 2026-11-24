@@ -18,7 +18,8 @@ The script initializes the pinned submodules recursively and runs the existing B
 | --- | --- | --- |
 | `sources/divinus` | https://github.com/TheDayG0ne/divinus.git | `980b1831bf832c1c435eceac2229130bc044f44a` |
 | `sources/firmware` | https://github.com/OpenIPC/firmware.git | `9e6a05287f4fc17d914e621bcf824e89dbcb8b0c` |
+| `sources/divinus-webui` | https://github.com/TheDayG0ne/divinus-webui.git | `8038ba99524053329171473a71c30c8fb5735646` |
 
-The build uses Divinus and firmware. Web UI integration is expected later: `sources/divinus-webui` will be added after the public `https://github.com/TheDayG0ne/divinus-webui.git` fork is available; it is not included or integrated yet. Submodule contents and configuration remain upstream. Buildroot itself is fetched at `4235e198768df7d2696f49f28b090c08fed79954` (2024.02.10). The Debian base image, apt packages and other Buildroot downloads are not all pinned, so this is not a guarantee of bit-identical results. Review source licenses and independently verify upstreams.
+The build uses Divinus and firmware. Divinus WebUI is included as source but is not integrated into the Buildroot output; see its [README](sources/divinus-webui/README.md) for its experimental standalone deployment and security limitations. Submodule contents and configuration remain upstream. Buildroot itself is fetched at `4235e198768df7d2696f49f28b090c08fed79954` (2024.02.10). The Debian base image, apt packages and other Buildroot downloads are not all pinned, so this is not a guarantee of bit-identical results. Review source licenses and independently verify upstreams.
 
 `buildroot/`, `overlay/`, `image/` and `tests/` retain their own documentation; some describe separate experimental workflows, not the result of the command above. See [build/README.md](build/README.md) for checks and details.
