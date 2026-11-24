@@ -1,5 +1,30 @@
 #!/bin/sh
 # Shared store policy. Called only with a private, mounted store.
+# Enumerate partitions, bypassing blkid's cache. No symlink database is needed.
+ovl_resolve_partuuid() {
+    id=$1
+    case "$id" in ????????-??) ;; *) return 1 ;; esac
+    prefix=${id%-??}; suffix=${id#????????-}
+    case "$prefix$suffix" in *[!0123456789abcdefABCDEF]*) return 1 ;; esac
+    id=$(printf '%s' "$id" | tr 'A-F' 'a-f')
+    found=
+    for part in /sys/class/block/*/partition; do
+        [ -f "$part" ] || continue
+        name=${part%/partition}; name=${name##*/}
+        case "$name" in *[!a-zA-Z0-9_.!-]*|'') return 1 ;; esac
+        dev=/dev/$name
+        [ -b "$dev" ] || return 1
+        value=$(blkid -p -s PART_ENTRY_UUID -o value "$dev" 2>/dev/null) && status=0 || status=$?
+        [ "$status" -eq 0 ] || [ "$status" -eq 2 ] || return 1
+        value=$(printf '%s' "$value" | tr 'A-F' 'a-f')
+        if [ "$value" = "$id" ]; then
+            [ -z "$found" ] || return 1
+            found=$dev
+        fi
+    done
+    [ -n "$found" ] || return 1
+    printf '%s\n' "$found"
+}
 ovl_prepare() {
     store=$1
     [ -f "$store/.overlay-x86-store" ] && [ ! -L "$store/.overlay-x86-store" ] || return 1

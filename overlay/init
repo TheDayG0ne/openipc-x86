@@ -31,7 +31,17 @@ for arg in $(cat /proc/cmdline); do
     esac
 done
 set +f
-case "$device" in /dev/*) ;; *) fail 'overlay.x86 must name a /dev block device' ;; esac
+case "$device" in
+    PARTUUID=*)
+        mount -t sysfs sysfs /sys || fail 'cannot mount sysfs'
+        # Give asynchronous controllers time to discover disks before the one scan.
+        sleep 5
+        device=$(ovl_resolve_partuuid "${device#PARTUUID=}") || fail 'PARTUUID absent, ambiguous or unreadable'
+        umount /sys || fail 'cannot unmount sysfs'
+        ;;
+    /dev/*) ;;
+    *) fail 'overlay.x86 must name a /dev block device or MBR PARTUUID' ;;
+esac
 [ -b "$device" ] || fail 'overlay device absent or not a block device'
 # Explicit provisioning is mandatory; an unmountable disk is never reformatted.
 mount -t ext4 -o rw,nodev,nosuid "$device" /overlay || fail 'cannot mount persistent ext4'
