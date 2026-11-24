@@ -4,10 +4,11 @@
 # directory and config. Ports are independent; ONVIF remains disabled unless the
 # operator explicitly enables it (WS-Discovery multicast is shared by design).
 
-DAEMON=/usr/bin/divinus
-BASE=/var/lib/divinus-multi
-CONF=/etc/divinus-multi.conf
-PIDS=/var/run/divinus-multi
+DAEMON=${DAEMON:-/usr/bin/divinus}
+BASE=${BASE:-/var/lib/divinus-multi}
+CONF=${CONF:-/etc/divinus-multi.conf}
+PIDS=${PIDS:-/var/run/divinus-multi}
+TEMPLATE=${TEMPLATE:-/etc/divinus.yaml}
 
 [ -r "$CONF" ] || exit 0
 . "$CONF"
@@ -22,15 +23,26 @@ stop_one() {
 }
 start_one() {
     n=$1; dev=$2; web=$3; rtsp=$4
-    [ -c "$dev" ] || { echo "divinus-multi: camera $n absent ($dev), skipped" >&2; return 0; }
+    [ -n "$web" ] || web=$((79 + n))
+    [ -n "$rtsp" ] || rtsp=$((553 + n))
+    # Instance 1 is the setup anchor and must exist without a camera. Additional
+    # instances are strictly device-backed; this is not a hotplug supervisor.
+    if [ "$n" -ne 1 ] && { [ -z "$dev" ] || [ ! -c "$dev" ]; }; then
+        echo "divinus-multi: camera $n absent ($dev), skipped" >&2
+        return 0
+    fi
     dir="$BASE/$n"
     mkdir -p "$dir" "$PIDS" || return 1
-    # Keep the vendor configuration as the template; only instance-scoped values
-    # are changed. No source component is replaced. The launcher copies the
-    # complete template because Divinus resolves divinus.yaml beside its binary.
-    sed -e "s/^  web_port: .*/  web_port: $web/" \
-        -e "s/^  port: .*/  port: $rtsp/" \
-        /etc/divinus.yaml > "$dir/divinus.yaml"
+    [ -n "$dev" ] || dev=/dev/null
+    # Divinus resolves its config beside /proc/self/exe. Change only the keys
+    # in their owning YAML sections; a global `port:` replacement is unsafe.
+    awk -v web="$web" -v rtsp="$rtsp" '
+        /^system:$/ { section="system" }
+        /^rtsp:$/ { section="rtsp" }
+        section == "system" && /^  web_port:/ { $0="  web_port: " web }
+        section == "rtsp" && /^  port:/ { $0="  port: " rtsp }
+        { print }
+    ' "$TEMPLATE" > "$dir/divinus.yaml" || return 1
     cp "$DAEMON" "$dir/divinus" || return 1
     UVC_DEVICE="$dev" "$dir/divinus" >"$dir/divinus.log" 2>&1 &
     echo $! > "$(pidfile "$n")"
