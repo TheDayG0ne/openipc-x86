@@ -1,0 +1,56 @@
+#!/bin/sh
+# Start only real UVC devices. This does not emulate or substitute a camera.
+# Divinus reads its config beside the executable, so each instance gets a private
+# directory and config. Ports are independent; ONVIF remains disabled unless the
+# operator explicitly enables it (WS-Discovery multicast is shared by design).
+
+DAEMON=/usr/bin/divinus
+BASE=/var/lib/divinus-multi
+CONF=/etc/divinus-multi.conf
+PIDS=/var/run/divinus-multi
+
+[ -r "$CONF" ] || exit 0
+. "$CONF"
+
+pidfile() { echo "$PIDS/$1.pid"; }
+stop_one() {
+    p=$(pidfile "$1")
+    [ -r "$p" ] || return 0
+    pid=$(cat "$p")
+    kill "$pid" 2>/dev/null || true
+    rm -f "$p"
+}
+start_one() {
+    n=$1; dev=$2; web=$3; rtsp=$4
+    [ -c "$dev" ] || { echo "divinus-multi: camera $n absent ($dev), skipped" >&2; return 0; }
+    dir="$BASE/$n"
+    mkdir -p "$dir" "$PIDS" || return 1
+    # Keep the vendor configuration as the template; only instance-scoped values
+    # are changed. No source component is replaced. The launcher copies the
+    # complete template because Divinus resolves divinus.yaml beside its binary.
+    sed -e "s/^  web_port: .*/  web_port: $web/" \
+        -e "s/^  port: .*/  port: $rtsp/" \
+        /etc/divinus.yaml > "$dir/divinus.yaml"
+    cp "$DAEMON" "$dir/divinus" || return 1
+    UVC_DEVICE="$dev" "$dir/divinus" >"$dir/divinus.log" 2>&1 &
+    echo $! > "$(pidfile "$n")"
+}
+
+case "$1" in
+ start)
+    mkdir -p "$BASE" "$PIDS"
+    count=${MULTI_CAMERAS:-1}; [ "$count" -ge 1 ] 2>/dev/null || count=1
+    [ "$count" -le 4 ] 2>/dev/null || count=4
+    i=1
+    while [ "$i" -le "$count" ]; do
+        eval "dev=\${MULTI_DEVICE_$i}"; eval "web=\${MULTI_WEB_PORT_$i}"; eval "rtsp=\${MULTI_RTSP_PORT_$i}"
+        start_one "$i" "$dev" "$web" "$rtsp"
+        i=$((i + 1))
+    done
+    ;;
+ stop)
+    i=1; while [ "$i" -le 4 ]; do stop_one "$i"; i=$((i + 1)); done
+    ;;
+ restart) "$0" stop; sleep 1; "$0" start ;;
+ *) echo "Usage: $0 {start|stop|restart}" >&2; exit 1 ;;
+ esac

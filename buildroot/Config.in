@@ -11,3 +11,10 @@ config BR2_PACKAGE_X86_DIVINUS_FFMPEG
 	select BR2_PACKAGE_X264
 	help
 	  Build the local UVC-enabled Divinus with FFmpeg and x264.
+
+config BR2_PACKAGE_DIVINUS_MULTI
+	bool "Divinus multi-camera launcher (1-4 UVC devices)"
+	depends on BR2_PACKAGE_DIVINUS
+	help
+	  Start independent Divinus processes for present UVC devices with distinct
+	  web and RTSP ports. Missing devices are skipped; no camera is emulated.
