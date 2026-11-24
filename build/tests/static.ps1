@@ -25,4 +25,8 @@ $package = Get-Content -Raw (Join-Path $repo 'buildroot/package/divinus-webui/di
 $external = Get-Content -Raw (Join-Path $repo 'buildroot/external.mk')
 if ($config -notmatch 'BR2_PACKAGE_DIVINUS_WEBUI=y' -or $external -notmatch 'package/\*/\*\.mk' -or $package -notmatch '\$\(eval \$\(generic-package\)\)' -or $package -notmatch '/var/www' -or $package -notmatch 'divinus\.js') { throw 'Missing WebUI Buildroot integration' }
 if ($config -notmatch 'board/post-build.sh' -or $entry -notmatch '/repo/sources/divinus-webui/' -or $entry -notmatch 'cmp ' -or $entry -notmatch '/var/www/' -or $entry -notmatch 'web_enable_auth: true') { throw 'Missing WebUI staging, configuration or asset checks' }
+if ($config -notmatch 'BR2_TARGET_GENERIC_GETTY=y' -or $config -notmatch 'BR2_TARGET_GENERIC_GETTY_PORT="ttyS0"' -or $config -notmatch 'BR2_SYSTEM_DHCP="eth0"') { throw 'Missing serial getty or VM DHCP configuration' }
+$fragment = Get-Content -Raw (Join-Path $repo 'buildroot/board/linux.fragment')
+$post = Get-Content -Raw (Join-Path $repo 'buildroot/board/post-build.sh')
+if ($config -notmatch 'console=ttyS0,115200 console=tty0' -or $fragment -notmatch 'CONFIG_SERIAL_8250_CONSOLE=y' -or $fragment -notmatch 'CONFIG_VGA_CONSOLE=y' -or $post -notmatch 'mjpeg' -or $post -notmatch 'osd') { throw 'Missing x86 console/VGA or unsupported feature guards' }
 Write-Host 'Static checks passed.'
