@@ -22,6 +22,8 @@ container_created=0
 image_created=0
 clone_created=0
 output=""
+output_parent=""
+staging=""
 
 usage() {
     cat <<'EOF'
@@ -29,8 +31,9 @@ Usage:
   ./build/build-ubuntu.sh [--ref REF] [--jobs N] [--output DIR]
 
 The helper builds an exact checkout. Outside a checkout it creates a disposable
-clone, selects REF, and runs the script from that clone. Docker installation is
-never implicit: set INSTALL_DOCKER=1 to explicitly allow apt installation.
+clone, selects REF, and runs the script from that clone. Output must be a new
+directory outside every checkout. Docker installation is never implicit: set
+INSTALL_DOCKER=1 to explicitly allow apt installation.
 EOF
 }
 
@@ -63,13 +66,18 @@ absolute_output() {
     mkdir -p -- "$parent"
     parent="$(cd -- "$parent" && pwd -P)"
     [[ "$name" != . && "$name" != .. && -n "$name" ]] || return 1
-    mkdir -p -- "$parent/$name"
-    (cd -- "$parent/$name" && pwd -P)
+    printf '%s\n' "$parent/$name"
 }
 
 cleanup_clone() {
     if [[ "$clone_created" == 1 && -n "$clone_dir" && -d "$clone_dir" ]]; then
         rm -rf -- "$clone_dir"
+    fi
+}
+
+cleanup_staging() {
+    if [[ -n "$staging" && -d "$staging" ]]; then
+        rm -rf -- "$staging"
     fi
 }
 
@@ -96,12 +104,11 @@ else
 fi
 
 if [[ -n "$OUTPUT_ROOT" ]]; then
-    output="$(absolute_output "$OUTPUT_ROOT")" || { echo "Invalid output directory" >&2; exit 2; }
-elif [[ "$clone_created" == 1 ]]; then
-    output="$(absolute_output "$CALLER_DIR/openipc-x86-artifacts")"
+    requested_output="$OUTPUT_ROOT"
 else
-    output="$(absolute_output "$repo_root/build/artifacts-$(cat /proc/sys/kernel/random/uuid | tr -d '-')")"
+    requested_output="$(dirname -- "$repo_root")/openipc-x86-artifacts-$(cat /proc/sys/kernel/random/uuid | tr -d '-')"
 fi
+output="$(absolute_output "$requested_output")" || { echo "Invalid output directory" >&2; exit 2; }
 
 [[ "$output" != *:* ]] || { echo "Output path must not contain ':' (Docker copy syntax)" >&2; exit 2; }
 [[ "$repo_root" != *:* && "$repo_root" != *,* ]] || { echo "Checkout path must not contain ':' or ',' (Docker mount syntax)" >&2; exit 2; }
@@ -135,7 +142,14 @@ docker info >/dev/null 2>&1 || { echo "Docker is unavailable for this user. Star
 id="$(cat /proc/sys/kernel/random/uuid | tr -d '-')"
 container="openipc-x86-$id"
 image="openipc-x86-builder:$id"
-mkdir -p -- "$output"
+output_parent="$(dirname -- "$output")"
+[[ ! -e "$output" && ! -L "$output" ]] || { echo "Output already exists: $output" >&2; exit 2; }
+[[ "$output" != "$repo_root"/* && "$output" != "$repo_root" ]] || { echo "Output must be outside the checkout" >&2; exit 2; }
+if git -C "$output_parent" rev-parse --show-toplevel >/dev/null 2>&1; then
+    echo "Output must be outside any checkout: $output" >&2; exit 2
+fi
+staging="$(mktemp -d "$output_parent/.openipc-x86-staging.XXXXXX")"
+trap 'status=$?; cleanup_staging; exit "$status"' EXIT
 
 on_error() {
     status=$?
@@ -152,9 +166,12 @@ image_created=1
 docker run --name "$container" --volume "$repo_root:/repo:ro" --env "JOBS=$JOBS" "$image"
 container_created=1
 for artifact in "${ARTIFACTS[@]}"; do
-    docker cp "$container:/work/output/images/$artifact" "$output/$artifact"
-    [[ -f "$output/$artifact" ]] || { echo "Docker cp did not create expected artifact: $output/$artifact" >&2; exit 1; }
+    docker cp "$container:/work/output/images/$artifact" "$staging/$artifact"
+    [[ -f "$staging/$artifact" ]] || { echo "Docker cp did not create expected artifact: $staging/$artifact" >&2; exit 1; }
 done
+mv -T -n -- "$staging" "$output"
+[[ ! -d "$staging" ]] || { echo "Output appeared during build: $output" >&2; exit 1; }
+staging=""
 docker rm "$container" >/dev/null
 container_created=0
 trap - ERR

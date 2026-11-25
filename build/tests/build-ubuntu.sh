@@ -20,15 +20,16 @@ case "$1" in
     [[ "$dir" == "$TEST_ROOT/caller" && "${FAKE_CHECKOUT:-0}" == 1 ]] || exit 1
     printf '%s\n' "$TEST_ROOT/caller" ;;
   clone)
+    [[ "$2" == --no-checkout && "$3" == -- && "$4" == https://github.com/TheDayG0ne/openipc-x86.git && "$#" == 5 ]]
     target="${@: -1}"
     mkdir -p "$target/build"
-    cp "$SOURCE_ROOT/build/build-ubuntu.sh" "$target/build/build-ubuntu.sh"
-    chmod +x "$target/build/build-ubuntu.sh"
     : >"$target/build/Dockerfile"
     printf '%s\n' "$target" >"$TEST_ROOT/clone-path" ;;
   checkout)
     [[ "$dir" == "$(cat "$TEST_ROOT/clone-path")" && "$2" == --detach && "$3" != -* ]]
-    printf '%s\n' "$3" >"$TEST_ROOT/ref" ;;
+    printf '%s\n' "$3" >"$TEST_ROOT/ref"
+    cp "$SOURCE_ROOT/build/build-ubuntu.sh" "$dir/build/build-ubuntu.sh"
+    chmod +x "$dir/build/build-ubuntu.sh" ;;
   submodule) [[ "$dir" == "$(cat "$TEST_ROOT/clone-path")" ]] ;;
   *) exit 1 ;;
 esac
@@ -45,10 +46,11 @@ case "$1" in
     : >"$TEST_ROOT/image" ;;
   run)
     [[ "$4" == --volume && "$5" == "$EXPECTED_REPO:/repo:ro" ]]
-    : >"$TEST_ROOT/container"
+    printf '%s\n' "$3" >"$TEST_ROOT/container"
     [[ "${FAIL_STAGE:-}" != run ]] || exit 32 ;;
   cp)
-    [[ "$2" == *:/work/output/images/* && "$3" == /* ]]
+    [[ "$2" == "$(cat "$TEST_ROOT/container"):/work/output/images/$(basename -- "$3")" ]]
+    [[ "$3" == /* && "$3" == *openipc-x86-staging.*/* ]]
     [[ "${FAIL_STAGE:-}" != cp ]] || exit 33
     : >"$3" ;;
   rm) rm -f "$TEST_ROOT/container" ;;
@@ -69,6 +71,7 @@ sed -i '/case "\$1" in/i [[ "$EXPECTED_REPO" != CLONE ]] || EXPECTED_REPO="$(cat
 FAKE_CHECKOUT=1 "$root/build/build-ubuntu.sh" --ref review/ref --output "$test_root/out" >"$test_root/stdout"
 [[ "$(cat "$test_root/ref")" == review/ref ]]
 [[ ! -e "$(cat "$test_root/clone-path")" ]]
+[[ ! -e "$test_root/out/.openipc-x86-staging."* ]]
 for f in bzImage rootfs.ext4 rootfs.squashfs; do [[ -f "$test_root/out/$f" ]]; done
 grep -F -- "$test_root/out" "$test_root/stdout" >/dev/null
 : >"$GIT_LOG"
@@ -76,6 +79,7 @@ EXPECTED_REPO="$test_root/caller" FAKE_CHECKOUT=1 "$root/build/build-ubuntu.sh" 
 ! grep -q 'clone' "$GIT_LOG"
 if FAKE_CHECKOUT=1 "$root/build/build-ubuntu.sh" --ref -bad > /dev/null 2>&1; then exit 1; fi
 if FAIL_STAGE=run FAKE_CHECKOUT=1 "$root/build/build-ubuntu.sh" --ref error/ref --output "$test_root/error-out" >"$test_root/error" 2>&1; then exit 1; fi
+[[ ! -e "$test_root/error-out" ]]
 [[ ! -e "$(cat "$test_root/clone-path")" ]]
 grep -q 'container: openipc-x86-' "$test_root/error"
 grep -q 'image: openipc-x86-builder:' "$test_root/error"

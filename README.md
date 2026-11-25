@@ -31,10 +31,11 @@ When invoked outside a checkout, the helper creates a temporary disposable clone
 checkout, it uses that checkout without changing branches, refs, or submodules. Supplying
 `--ref` always uses a separate temporary clone, so a reviewed or locally modified checkout
 cannot be silently overwritten. A temporary clone runs its own selected script and is removed
-on exit. Its default output is `openipc-x86-artifacts` in the caller's directory; `--output`
-must resolve outside the clone. Refs beginning with `-` are rejected. Existing-checkout builds
-default to a uniquely named directory under `build/`. The contract test uses fake Git and
-Docker commands and does not run a build.
+on exit. Its default output is a uniquely named directory beside the checkout; `--output`
+must name a new directory outside every checkout (an existing directory is rejected). All
+artifacts are copied to a unique staging directory and published by rename only after every
+`docker cp` succeeds, so failures cannot mix old and new outputs. Refs beginning with `-`
+are rejected. The contract test uses fake Git and Docker commands and does not run a build.
 
 The Ubuntu helper is a convenience wrapper around `build/build.ps1`'s Docker pipeline; it does not alter component sources. For reproducibility, review the selected commit and submodule gitlinks before building. Network access is needed for the clone, submodules, Docker base image, and Buildroot downloads.
 
