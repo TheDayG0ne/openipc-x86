@@ -118,4 +118,24 @@ if FAIL_STAGE=run FAKE_CHECKOUT=1 "$root/build/build-ubuntu.sh" --ref error/ref 
 [[ ! -e "$(cat "$test_root/clone-path")" ]]
 grep -q 'container: openipc-x86-' "$test_root/error"
 grep -q 'image: openipc-x86-builder:' "$test_root/error"
+
+# Exercise every supported destination race through the real helper contract.
+# The fake Docker process creates the destination during the final docker cp;
+# publication must fail closed and the exact staging path must be cleaned up.
+for race in file dir symlink; do
+    race_output="$test_root/race-$race"
+    RACE_TYPE="$race" RACE_DEST="$race_output" FAKE_CHECKOUT=1 \
+        "$root/build/build-ubuntu.sh" --output "$race_output" \
+        >"$test_root/race-$race.log" 2>&1 && exit 1
+    [[ -e "$race_output" || -L "$race_output" ]]
+    ! compgen -G "$test_root/.openipc-x86-staging.*" >/dev/null
+    if [[ "$race" == symlink ]]; then
+        [[ -L "$race_output" ]]
+    elif [[ "$race" == dir ]]; then
+        [[ -d "$race_output" ]]
+    else
+        [[ -f "$race_output" ]]
+    fi
+done
+
 echo 'build-ubuntu contract tests: ok'
