@@ -29,6 +29,7 @@ case "$1" in
     [[ "$dir" == "$(cat "$TEST_ROOT/clone-path")" && "$2" == --detach && "$3" != -* ]]
     printf '%s\n' "$3" >"$TEST_ROOT/ref"
     cp "$SOURCE_ROOT/build/build-ubuntu.sh" "$dir/build/build-ubuntu.sh"
+    cp "$SOURCE_ROOT/build/publish-noreplace.py" "$dir/build/publish-noreplace.py"
     chmod +x "$dir/build/build-ubuntu.sh" ;;
   submodule) [[ "$dir" == "$(cat "$TEST_ROOT/clone-path")" ]] ;;
   *) exit 1 ;;
@@ -52,7 +53,15 @@ case "$1" in
     [[ "$2" == "$(cat "$TEST_ROOT/container"):/work/output/images/$(basename -- "$3")" ]]
     [[ "$3" == /* && "$3" == *openipc-x86-staging.*/* ]]
     [[ "${FAIL_STAGE:-}" != cp ]] || exit 33
-    : >"$3" ;;
+    : >"$3"
+    if [[ "${RACE_TYPE:-}" && "$(basename -- "$3")" == rootfs.squashfs ]]; then
+      case "$RACE_TYPE" in
+        file) : >"$RACE_DEST" ;;
+        dir) mkdir -p "$RACE_DEST" ;;
+        symlink) ln -s "$TEST_ROOT/race-target" "$RACE_DEST" ;;
+        *) exit 34 ;;
+      esac
+    fi ;;
   rm) rm -f "$TEST_ROOT/container" ;;
   container) [[ "$2" == inspect && -f "$TEST_ROOT/container" ]] ;;
   image) [[ "$2" == inspect && -f "$TEST_ROOT/image" ]] ;;
@@ -61,6 +70,32 @@ esac
 EOF
 chmod +x "$fakebin/git" "$fakebin/docker"
 export PATH="$fakebin:$PATH" INSTALL_DOCKER=0 OPENIPC_X86_REF=
+export PYTHONPATH="$SOURCE_ROOT/build"
+python3 - <<'PY'
+import errno
+import os
+import tempfile
+from publish_noreplace import publish
+
+with tempfile.TemporaryDirectory() as root:
+    staging = os.path.join(root, 'staging')
+    destination = os.path.join(root, 'destination')
+    os.mkdir(staging)
+    for kind in ('file', 'dir', 'symlink'):
+        def create_destination(*_args, kind=kind):
+            if kind == 'file': open(destination, 'w').close()
+            elif kind == 'dir': os.mkdir(destination)
+            else: os.symlink(os.path.join(root, 'target'), destination)
+            import ctypes
+            ctypes.set_errno(errno.EEXIST)
+            return -1
+        try: publish(staging, destination, create_destination)
+        except OSError: pass
+        else: raise AssertionError(kind)
+        assert os.path.lexists(destination), kind
+        if os.path.isdir(destination) and not os.path.islink(destination): os.rmdir(destination)
+        else: os.unlink(destination)
+PY
 : >"$GIT_LOG"; : >"$DOCKER_LOG"
 cd "$test_root/caller"
 # The clone path is generated dynamically; Docker checks it against Git's record.

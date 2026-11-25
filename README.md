@@ -33,9 +33,8 @@ checkout, it uses that checkout without changing branches, refs, or submodules. 
 cannot be silently overwritten. A temporary clone runs its own selected script and is removed
 on exit. Its default output is a uniquely named directory beside the checkout; `--output`
 must name a new directory outside every checkout (an existing directory is rejected). All
-artifacts are copied to a unique staging directory and published by rename only after every
-`docker cp` succeeds, so failures cannot mix old and new outputs. Refs beginning with `-`
-are rejected. The contract test uses fake Git and Docker commands and does not run a build.
+artifacts are copied to a unique staging directory and published by Linux `python3` `renameat2(2)` with `RENAME_NOREPLACE` only after every
+`docker cp` succeeds. Python 3 and Linux are checked explicitly; unavailable or failed `renameat2` fails closed. Staging and destination share one parent, which must be trusted and not concurrently modified by untrusted users; this is not protection against a malicious root user. The mock contract test covers destination file, directory and symlink races, plus exact-path staging cleanup. Refs beginning with `-` are rejected. The contract test uses fake Git and Docker commands and does not run a build.
 
 The Ubuntu helper is a convenience wrapper around `build/build.ps1`'s Docker pipeline; it does not alter component sources. For reproducibility, review the selected commit and submodule gitlinks before building. Network access is needed for the clone, submodules, Docker base image, and Buildroot downloads.
 

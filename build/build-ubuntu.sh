@@ -76,7 +76,9 @@ cleanup_clone() {
 }
 
 cleanup_staging() {
-    if [[ -n "$staging" && -d "$staging" ]]; then
+    # The exact path is safer than a wildcard; -L also handles a replaced
+    # staging entry without following a symlink.
+    if [[ -n "$staging" && ( -e "$staging" || -L "$staging" ) ]]; then
         rm -rf -- "$staging"
     fi
 }
@@ -137,6 +139,8 @@ if [[ "$INSTALL_DOCKER" == 1 ]]; then
     sudo systemctl enable --now docker
 fi
 command -v docker >/dev/null || { echo "Docker is required. Re-run with INSTALL_DOCKER=1 to opt in to installation." >&2; exit 1; }
+command -v python3 >/dev/null || { echo "python3 is required for Linux no-replace publication" >&2; exit 1; }
+[[ "$(uname -s)" == Linux ]] || { echo "atomic no-replace publication requires Linux" >&2; exit 1; }
 docker info >/dev/null 2>&1 || { echo "Docker is unavailable for this user. Start Docker deliberately; docker access is root-equivalent." >&2; exit 1; }
 
 id="$(cat /proc/sys/kernel/random/uuid | tr -d '-')"
@@ -169,8 +173,8 @@ for artifact in "${ARTIFACTS[@]}"; do
     docker cp "$container:/work/output/images/$artifact" "$staging/$artifact"
     [[ -f "$staging/$artifact" ]] || { echo "Docker cp did not create expected artifact: $staging/$artifact" >&2; exit 1; }
 done
-mv -T -n -- "$staging" "$output"
-[[ ! -d "$staging" ]] || { echo "Output appeared during build: $output" >&2; exit 1; }
+python3 "$SCRIPT_DIR/publish-noreplace.py" "$staging" "$output"
+[[ ! -e "$staging" && ! -L "$staging" ]] || { echo "Atomic publication did not consume staging: $staging" >&2; exit 1; }
 staging=""
 docker rm "$container" >/dev/null
 container_created=0
