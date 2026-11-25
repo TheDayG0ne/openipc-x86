@@ -8,15 +8,25 @@ CONF=${CONF:-/etc/divinus-multi.conf}
 PIDS=${PIDS:-/var/run/divinus-multi}
 TEMPLATE=${TEMPLATE:-/etc/divinus.yaml}
 RUNTIME=${RUNTIME:-/run/divinus}
-MANIFEST=$RUNTIME/cameras.manifest
 STOP_TIMEOUT=${STOP_TIMEOUT:-5}
 
-# stop is deliberately useful during recovery even when the configuration was
-# removed. start still has the historical, quiet no-config behaviour.
+# PIDS and RUNTIME are invocation-owned paths.  A sourced configuration may
+# configure the services, but must not switch the lock/pid or manifest paths
+# halfway through a lifecycle operation.  start and restart fail closed when
+# their configuration is absent; stop remains available for recovery.
+FIXED_PIDS=$PIDS
+FIXED_RUNTIME=$RUNTIME
 case "$1" in
-    stop|restart) ;;
-    *) [ -r "$CONF" ] || exit 0; . "$CONF" ;;
+    start|restart)
+        [ -r "$CONF" ] || { echo "divinus-multi: missing configuration: $CONF" >&2; exit 1; }
+        . "$CONF" || exit 1
+        PIDS=$FIXED_PIDS
+        RUNTIME=$FIXED_RUNTIME
+        ;;
+    stop) ;;
+    *) echo "Usage: $0 {start|stop|restart}" >&2; exit 1;;
 esac
+MANIFEST=$RUNTIME/cameras.manifest
 
 umask 077
 pidfile() { echo "$PIDS/$1.pid"; }
@@ -33,12 +43,23 @@ starttime() {
 }
 owned_pid() {
     [ -f "$1" ] && [ ! -L "$1" ] || return 1
-    read -r pid started extra < "$1" || return 1
+    read -r pid started role extra < "$1" || return 1
     case $pid in ''|*[!0-9]*|0|1) return 1;; esac
     case $started in ''|*[!0-9]*) return 1;; esac
+    case $role in central|camera-*) ;; *) return 1;; esac
     [ -z "$extra" ] || return 1
     actual=$(starttime "$pid") || return 1
-    [ "$actual" = "$started" ]
+    [ "$actual" = "$started" ] || return 1
+    expected="$BASE/$role/divinus"
+    actual_exe=$(readlink "/proc/$pid/exe" 2>/dev/null || true)
+    if [ -n "$actual_exe" ] && [ "$actual_exe" = "$expected" ]; then
+        return 0
+    fi
+    # An interpreted test executable may exec another program, so retain a
+    # role marker in its environment as the strongest identity available in
+    # that case.  This is deliberately not presented as a readiness check.
+    marker=$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -F -x "DIVINUS_MULTI_ROLE=$role" || true)
+    [ "$marker" = "DIVINUS_MULTI_ROLE=$role" ]
 }
 # /proc starttime guards against stale PID files, but checking then signalling
 # is not atomic: PID reuse between the check and kill remains possible. A zombie
@@ -46,6 +67,14 @@ owned_pid() {
 stop_one() {
     name=$1; p=$(pidfile "$name")
     if ! owned_pid "$p"; then
+        # A zero starttime is an intentionally retained tracking record: the
+        # process identity could not be collected, so do not erase evidence
+        # during rollback or claim that it was stopped.
+        if [ -f "$p" ] && read -r pid started role extra < "$p" \
+            && [ "$started" = 0 ] && [ "$role" = "$name" ] && [ -z "$extra" ]; then
+            echo "divinus-multi: cannot verify $name (pid $pid); pidfile retained" >&2
+            return 1
+        fi
         rm -f "$p"
         return 0
     fi
@@ -80,9 +109,12 @@ secure_dir() {
     chmod 700 "$1"
 }
 record_child() {
-    child=$1; file=$2
-    started=$(starttime "$child") || { kill "$child" 2>/dev/null || true; return 1; }
-    printf '%s %s\n' "$child" "$started" > "$file" || { kill "$child" 2>/dev/null || true; rm -f "$file"; return 1; }
+    child=$1; file=$2; role=$3
+    # Publish the PID before the /proc read.  If identity collection fails,
+    # keep a non-owned record so rollback does not silently lose the child.
+    printf '%s 0 %s\n' "$child" "$role" > "$file" || { kill "$child" 2>/dev/null || true; return 1; }
+    started=$(starttime "$child") || return 1
+    printf '%s %s %s\n' "$child" "$started" "$role" > "$file" || return 1
 }
 # Store ports in canonical decimal form. This avoids shell arithmetic treating
 # values such as 008 as octal, and makes generated manifests deterministic.
@@ -144,8 +176,8 @@ write_config() {
 start_central() {
     dir="$BASE/central"; secure_dir "$dir" || return 1
     write_config "$dir" "$MULTI_WEB_PORT" "$MULTI_RTSP_PORT_CENTRAL" "false" || return 1
-    UVC_DEVICE=/dev/null "$dir/divinus" 9>&- >"$dir/divinus.log" 2>&1 &
-    record_child "$!" "$(pidfile central)"
+    DIVINUS_MULTI_ROLE=central UVC_DEVICE=/dev/null "$dir/divinus" 9>&- >"$dir/divinus.log" 2>&1 &
+    record_child "$!" "$(pidfile central)" central
 }
 start_camera() {
     n=$1; dev=$2; rtsp=$3
@@ -153,8 +185,8 @@ start_camera() {
     if [ -z "$dev" ] || [ ! -c "$dev" ]; then echo "divinus-multi: camera $n absent ($dev), skipped" >&2; return 0; fi
     dir="$BASE/camera-$n"; secure_dir "$dir" || return 1
     write_config "$dir" 0 "$rtsp" true || return 1
-    UVC_DEVICE="$dev" "$dir/divinus" 9>&- >"$dir/divinus.log" 2>&1 &
-    record_child "$!" "$(pidfile "camera-$n")"
+    DIVINUS_MULTI_ROLE="camera-$n" UVC_DEVICE="$dev" "$dir/divinus" 9>&- >"$dir/divinus.log" 2>&1 &
+    record_child "$!" "$(pidfile "camera-$n")" "camera-$n"
 }
 acquire_lock() {
     if command -v flock >/dev/null 2>&1; then
@@ -183,11 +215,17 @@ case "$1" in
     stop_all || { echo "divinus-multi: refusing to start after incomplete stop" >&2; exit 1; }
     rm -f "$MANIFEST"
     write_manifest || exit 1
-    if ! start_central; then rm -f "$MANIFEST"; exit 1; fi
+    if ! start_central; then
+        if stop_all; then rm -f "$MANIFEST"; else echo "divinus-multi: rollback incomplete; manifest retained" >&2; fi
+        exit 1
+    fi
     i=1
     while [ "$i" -le "$count" ]; do
         eval "dev=\${MULTI_DEVICE_$i-}"; eval "rtsp=\${MULTI_RTSP_PORT_$i}"
-        if ! start_camera "$i" "$dev" "$rtsp"; then stop_all || true; rm -f "$MANIFEST"; exit 1; fi
+        if ! start_camera "$i" "$dev" "$rtsp"; then
+            if stop_all; then rm -f "$MANIFEST"; else echo "divinus-multi: rollback incomplete; manifest retained" >&2; fi
+            exit 1
+        fi
         i=$((i + 1))
     done
     ;;

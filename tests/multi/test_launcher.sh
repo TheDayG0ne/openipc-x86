@@ -39,6 +39,9 @@ MULTI_WEB_PORT=80
 MULTI_RTSP_PORT_CENTRAL=554
 MULTI_RTSP_PORT_1=555
 MULTI_RTSP_PORT_2=556
+# These must not switch lifecycle state or the lock after sourcing config.
+PIDS=$TMP/other-pids
+RUNTIME=$TMP/other-runtime
 EOF
 
 run_launcher() {
@@ -82,17 +85,23 @@ run_launcher stop
 [ ! -e "$TMP/pids/central.pid" ]
 [ ! -e "$TMP/pids/camera-1.pid" ]
 [ ! -e "$TMP/runtime/cameras.manifest" ]
-# Missing config must not prevent stopping an existing run.
+[ ! -e "$TMP/other-pids" ]
+[ ! -e "$TMP/other-runtime" ]
+# Missing config must not prevent stopping an existing run, but start/restart
+# must fail rather than silently doing nothing.
 run_launcher start
 mv "$TMP/etc/divinus-multi.conf" "$TMP/etc/saved.conf"
 run_launcher stop
 [ ! -e "$TMP/pids/central.pid" ]
+if run_launcher start; then echo 'missing config accepted' >&2; exit 1; fi
+if run_launcher restart; then echo 'missing config accepted for restart' >&2; exit 1; fi
 mv "$TMP/etc/saved.conf" "$TMP/etc/divinus-multi.conf"
 
 # A live foreign PID with a stale start time must never receive a signal.
 sleep 1000 &
 foreign=$!
-printf '%s 0\n' "$foreign" > "$TMP/pids/central.pid"
+foreign_stat=$(cat "/proc/$foreign/stat"); foreign_stat=${foreign_stat##*) }; set -- $foreign_stat; shift 19
+printf '%s %s central\n' "$foreign" "$1" > "$TMP/pids/central.pid"
 run_launcher stop
 kill -0 "$foreign"
 kill "$foreign"
@@ -125,7 +134,7 @@ rm "$TMP/base/camera-1"
 sh -c 'trap "" TERM; exec sleep 1000' &
 stubborn=$!
 stat=$(cat "/proc/$stubborn/stat"); stat=${stat##*) }; set -- $stat; shift 19
-printf '%s %s\n' "$stubborn" "$1" > "$TMP/pids/central.pid"
+printf '%s %s central\n' "$stubborn" "$1" > "$TMP/pids/central.pid"
 sleep 1
 if STOP_TIMEOUT=1 run_launcher restart; then kill -KILL "$stubborn"; echo 'restart unexpectedly succeeded' >&2; exit 1; fi
 [ -f "$TMP/pids/central.pid" ]
