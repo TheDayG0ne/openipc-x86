@@ -16,7 +16,7 @@ chmod 0755 build-ubuntu.sh
 
 The helper **does not install Docker by default**. If Docker is not already installed, review the script and explicitly opt in to the Ubuntu package installation with `INSTALL_DOCKER=1 ./build-ubuntu.sh`. This uses `sudo apt-get` and enables the Docker service; use a separate build VM, keep packages updated, and remember that Docker access (including membership in the `docker` group) is effectively root-equivalent. Do not run the build on a workstation containing secrets or production mounts. The script never embeds IP addresses, credentials, tokens, or private URLs. Use `--ref` to select a reviewed Git ref, `--jobs N` to limit parallelism, and `--output DIR` to place artifacts outside the checkout.
 
-The builder mounts the checkout read-only and retains the uniquely tagged builder image. On success it prints an artifacts directory containing `bzImage`, `rootfs.ext4`, and `rootfs.squashfs`; it does not create an ISO, raw disk image, VMDK, or flash media. On failure the container and image are intentionally retained for diagnosis. Inspect with `docker logs <container>` and remove only the exact tagged resources after review; no Docker-wide prune is performed. Treat artifacts as untrusted build output, verify hashes/signatures in your release process, and transfer them only through an authenticated, access-controlled channel. Do not boot or flash them on production hardware. Disk-image creation requires a separate isolated Linux VM with deliberately reviewed privileged loop/mount access; see [image/README.md](image/README.md).
+The builder mounts the checkout read-only and retains the uniquely tagged builder image. On success it prints an artifacts directory containing `bzImage`, `rootfs.ext4`, and `rootfs.squashfs`; it does not create an ISO, raw disk image, VMDK, or flash media. On failure any created container and tagged image are retained for diagnosis; the helper reports which it can find. The disposable clone is removed on success or failure. Inspect with `docker logs <container>` and remove only the exact tagged resources after review; no Docker-wide prune is performed. Treat artifacts as untrusted build output, verify hashes/signatures in your release process, and transfer them only through an authenticated, access-controlled channel. Do not boot or flash them on production hardware. Disk-image creation requires a separate isolated Linux VM with deliberately reviewed privileged loop/mount access; see [image/README.md](image/README.md).
 
 Static verification, without Docker or a build, is available from a checkout:
 
@@ -30,8 +30,11 @@ When invoked outside a checkout, the helper creates a temporary disposable clone
 `--ref` (or `master`), and initializes its recursive submodules there. If invoked from a
 checkout, it uses that checkout without changing branches, refs, or submodules. Supplying
 `--ref` always uses a separate temporary clone, so a reviewed or locally modified checkout
-cannot be silently overwritten. The contract test uses fake Git and Docker commands and does
-not run a build.
+cannot be silently overwritten. A temporary clone runs its own selected script and is removed
+on exit. Its default output is `openipc-x86-artifacts` in the caller's directory; `--output`
+must resolve outside the clone. Refs beginning with `-` are rejected. Existing-checkout builds
+default to a uniquely named directory under `build/`. The contract test uses fake Git and
+Docker commands and does not run a build.
 
 The Ubuntu helper is a convenience wrapper around `build/build.ps1`'s Docker pipeline; it does not alter component sources. For reproducibility, review the selected commit and submodule gitlinks before building. Network access is needed for the clone, submodules, Docker base image, and Buildroot downloads.
 
