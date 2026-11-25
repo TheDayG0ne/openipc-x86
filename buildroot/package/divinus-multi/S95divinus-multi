@@ -44,6 +44,7 @@ starttime() {
 owned_pid() {
     [ -f "$1" ] && [ ! -L "$1" ] || return 1
     read -r pid started role extra < "$1" || return 1
+    [ "$role" = "$2" ] || return 1
     case $pid in ''|*[!0-9]*|0|1) return 1;; esac
     case $started in ''|*[!0-9]*) return 1;; esac
     case $role in central|camera-*) ;; *) return 1;; esac
@@ -66,7 +67,7 @@ owned_pid() {
 # may also keep its pidfile until reaped. This is not a pidfd-based supervisor.
 stop_one() {
     name=$1; p=$(pidfile "$name")
-    if ! owned_pid "$p"; then
+    if ! owned_pid "$p" "$name"; then
         # A zero starttime is an intentionally retained tracking record: the
         # process identity could not be collected, so do not erase evidence
         # during rollback or claim that it was stopped.
@@ -84,11 +85,11 @@ stop_one() {
         return 1
     fi
     waited=0
-    while owned_pid "$p" && [ "$waited" -lt "$STOP_TIMEOUT" ]; do
+    while owned_pid "$p" "$name" && [ "$waited" -lt "$STOP_TIMEOUT" ]; do
         sleep 1
         waited=$((waited + 1))
     done
-    if owned_pid "$p"; then
+    if owned_pid "$p" "$name"; then
         echo "divinus-multi: timeout stopping $name (pid $pid); pidfile retained" >&2
         return 1
     fi
@@ -206,7 +207,7 @@ case "$1" in
  start)
     secure_dir "$BASE" && secure_dir "$PIDS" && secure_dir "$RUNTIME" || { echo "divinus-multi: unsafe runtime directory" >&2; exit 1; }
     acquire_lock || exit 1
-    if owned_pid "$(pidfile central)"; then echo "divinus-multi: central is already running; worker reconciliation is not implemented" >&2; exit 1; fi
+    if owned_pid "$(pidfile central)" central; then echo "divinus-multi: central is already running; worker reconciliation is not implemented" >&2; exit 1; fi
     count=${MULTI_CAMERAS:-0}; case "$count" in ''|*[!0-9]*) echo "divinus-multi: invalid camera count" >&2; exit 1;; esac
     while [ "${count#0}" != "$count" ]; do count=${count#0}; done; [ -n "$count" ] || count=0
     [ "$count" -le 4 ] 2>/dev/null || { echo "divinus-multi: too many cameras" >&2; exit 1; }
