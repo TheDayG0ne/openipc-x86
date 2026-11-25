@@ -21,9 +21,17 @@ The builder mounts the checkout read-only and retains the uniquely tagged builde
 Static verification, without Docker or a build, is available from a checkout:
 
 ```bash
-bash -n build/build-ubuntu.sh build/buildroot-entrypoint.sh
+bash -n build/build-ubuntu.sh build/buildroot-entrypoint.sh build/tests/build-ubuntu.sh
+bash build/tests/build-ubuntu.sh
 powershell.exe -NoProfile -File ./build/tests/static.ps1  # if PowerShell is installed
 ```
+
+When invoked outside a checkout, the helper creates a temporary disposable clone, selects
+`--ref` (or `master`), and initializes its recursive submodules there. If invoked from a
+checkout, it uses that checkout without changing branches, refs, or submodules. Supplying
+`--ref` always uses a separate temporary clone, so a reviewed or locally modified checkout
+cannot be silently overwritten. The contract test uses fake Git and Docker commands and does
+not run a build.
 
 The Ubuntu helper is a convenience wrapper around `build/build.ps1`'s Docker pipeline; it does not alter component sources. For reproducibility, review the selected commit and submodule gitlinks before building. Network access is needed for the clone, submodules, Docker base image, and Buildroot downloads.
 

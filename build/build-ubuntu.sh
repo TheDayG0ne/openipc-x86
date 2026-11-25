@@ -4,13 +4,17 @@ set -Eeuo pipefail
 
 readonly REPO_URL="https://github.com/TheDayG0ne/openipc-x86.git"
 readonly SCRIPT_NAME="build-ubuntu.sh"
-readonly SELF_REEXEC="${OPENIPC_X86_REEXEC:-0}"
 JOBS="${JOBS:-2}"
 REF="${OPENIPC_X86_REF:-master}"
+REF_REQUESTED=0
+[[ -n "${OPENIPC_X86_REF:-}" ]] && REF_REQUESTED=1
 OUTPUT_ROOT=""
 INSTALL_DOCKER="${INSTALL_DOCKER:-0}"
 ORIGINAL_ARGS=("$@")
+CALLER_DIR="$PWD"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+CLONED_REPO=0
+SELF_REEXEC="${OPENIPC_X86_REEXEC:-0}"
 
 usage() {
     cat <<'EOF'
@@ -29,7 +33,7 @@ EOF
 
 while (($#)); do
     case "$1" in
-        --ref) REF="${2:?missing REF}"; shift 2 ;;
+        --ref) REF="${2:?missing REF}"; REF_REQUESTED=1; shift 2 ;;
         --jobs) JOBS="${2:?missing N}"; shift 2 ;;
         --output) OUTPUT_ROOT="${2:?missing DIR}"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
@@ -40,19 +44,31 @@ done
 case "$JOBS" in ''|*[!0-9]*) echo "--jobs must be a non-negative integer" >&2; exit 2 ;; esac
 
 repo_root=""
-if git -C "$PWD" rev-parse --show-toplevel >/dev/null 2>&1 && [[ -f "$PWD/build/Dockerfile" ]]; then
-    repo_root="$(git -C "$PWD" rev-parse --show-toplevel)"
-elif [[ "$SELF_REEXEC" != 1 ]]; then
+if git -C "$CALLER_DIR" rev-parse --show-toplevel >/dev/null 2>&1; then
+    candidate_root="$(git -C "$CALLER_DIR" rev-parse --show-toplevel)"
+    if [[ -f "$candidate_root/build/Dockerfile" ]]; then
+        repo_root="$candidate_root"
+    fi
+fi
+
+# A requested ref is always built from a disposable clone. Never checkout, reset,
+# or update submodules in an existing user checkout.
+if [[ "$SELF_REEXEC" != 1 && ( "$REF_REQUESTED" == 1 || -z "$repo_root" ) ]]; then
     clone_dir="$(mktemp -d "${TMPDIR:-/tmp}/openipc-x86.XXXXXX")"
     cleanup_clone() { rm -rf -- "$clone_dir"; }
     trap cleanup_clone EXIT
-    git clone --recurse-submodules "$REPO_URL" "$clone_dir"
+    git clone --no-checkout "$REPO_URL" "$clone_dir"
     git -C "$clone_dir" checkout --detach "$REF"
     git -C "$clone_dir" submodule update --init --recursive
-    exec env OPENIPC_X86_REEXEC=1 OPENIPC_X86_REF="$REF" "$clone_dir/build/$SCRIPT_NAME" "${ORIGINAL_ARGS[@]}"
-else
-    echo "Unable to locate a checkout containing build/Dockerfile" >&2
-    exit 1
+    repo_root="$clone_dir"
+    CLONED_REPO=1
+fi
+
+if [[ "$CLONED_REPO" == 1 && "$SELF_REEXEC" != 1 ]]; then
+    # Re-run the script selected by the requested ref, without requesting another clone.
+    forwarded=(--jobs "$JOBS")
+    [[ -n "$OUTPUT_ROOT" ]] && forwarded+=(--output "$OUTPUT_ROOT")
+    exec env OPENIPC_X86_REEXEC=1 OPENIPC_X86_REF= "$repo_root/build/$SCRIPT_NAME" "${forwarded[@]}"
 fi
 
 if [[ "$INSTALL_DOCKER" == 1 ]]; then
