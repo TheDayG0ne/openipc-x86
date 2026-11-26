@@ -73,9 +73,14 @@ export PATH="$fakebin:$PATH" INSTALL_DOCKER=0 OPENIPC_X86_REF=
 export PYTHONPATH="$SOURCE_ROOT/build"
 python3 - <<'PY'
 import errno
+import importlib.util
 import os
 import tempfile
-from publish_noreplace import publish
+
+spec = importlib.util.spec_from_file_location("publish_noreplace", os.path.join(os.environ["SOURCE_ROOT"], "build", "publish-noreplace.py"))
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+publish = module.publish
 
 with tempfile.TemporaryDirectory() as root:
     staging = os.path.join(root, 'staging')

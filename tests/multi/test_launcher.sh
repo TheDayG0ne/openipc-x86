@@ -27,6 +27,9 @@ cp "$script_dir/divinus.yaml" "${FAKE_OUT:?}/config-${UVC_DEVICE##*/}-$$"
 printf '%s\n' "$UVC_DEVICE" >> "$FAKE_OUT/devices"
 # Make the pidfile point directly at the long-lived process, so stop does not
 # leave a child process behind.
+if [ "${DIVINUS_TEST_IGNORE_TERM:-0}" = 1 ]; then
+    trap "" TERM
+fi
 exec sleep 1000
 EOF
 chmod +x "$TMP/bin/divinus"
@@ -130,16 +133,14 @@ if run_launcher start; then echo 'rollback test unexpectedly succeeded' >&2; exi
 [ ! -e "$TMP/runtime/cameras.manifest" ]
 rm "$TMP/base/camera-1"
 
-# A TERM-ignoring process forces a timeout. restart must not start a new run.
-sh -c 'trap "" TERM; exec sleep 1000' &
-stubborn=$!
-stat=$(cat "/proc/$stubborn/stat"); stat=${stat##*) }; set -- $stat; shift 19
-printf '%s %s central\n' "$stubborn" "$1" > "$TMP/pids/central.pid"
+# A launcher-owned TERM-ignoring process forces a timeout. restart must not start a new run.
+DIVINUS_TEST_IGNORE_TERM=1 run_launcher start
+stubborn=$(cut -d' ' -f1 "$TMP/pids/central.pid")
 sleep 1
 if STOP_TIMEOUT=1 run_launcher restart; then kill -KILL "$stubborn"; echo 'restart unexpectedly succeeded' >&2; exit 1; fi
 [ -f "$TMP/pids/central.pid" ]
 kill -0 "$stubborn"
 kill -KILL "$stubborn"
 wait "$stubborn" 2>/dev/null || true
-run_launcher stop
+rm -f "$TMP/pids/central.pid" "$TMP/pids/camera-1.pid" "$TMP/runtime/cameras.manifest"
 printf '%s\n' 'multi-camera launcher policy tests: PASS'
