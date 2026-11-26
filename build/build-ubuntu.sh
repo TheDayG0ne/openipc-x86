@@ -170,8 +170,18 @@ image_created=1
 docker run --name "$container" --volume "$repo_root:/repo:ro" --env "JOBS=$JOBS" "$image"
 container_created=1
 for artifact in "${ARTIFACTS[@]}"; do
-    docker cp "$container:/work/output/images/$artifact" "$staging/$artifact"
-    [[ -f "$staging/$artifact" ]] || { echo "Docker cp did not create expected artifact: $staging/$artifact" >&2; exit 1; }
+    source_artifact="$artifact"
+    # Buildroot emits rootfs.ext4 as a symlink to rootfs.ext2. Docker cp
+    # preserves that symlink, which would point outside the staging directory;
+    # copy the actual ext2 image into the published ext4 artifact instead.
+    if [[ "$artifact" == rootfs.ext4 ]]; then
+        source_artifact=rootfs.ext2
+    fi
+    docker cp "$container:/work/output/images/$source_artifact" "$staging/$artifact"
+    [[ -f "$staging/$artifact" && ! -L "$staging/$artifact" ]] || {
+        echo "Docker cp did not create a regular expected artifact: $staging/$artifact" >&2
+        exit 1
+    }
 done
 python3 "$SCRIPT_DIR/publish-noreplace.py" "$staging" "$output"
 [[ ! -e "$staging" && ! -L "$staging" ]] || { echo "Atomic publication did not consume staging: $staging" >&2; exit 1; }
