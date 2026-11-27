@@ -26,6 +26,31 @@ bash build/tests/build-ubuntu.sh
 powershell.exe -NoProfile -File ./build/tests/static.ps1  # if PowerShell is installed
 ```
 
+### Bridged QEMU networking
+
+QEMU smoke tests must use a host L2 bridge when the guest needs a DHCP lease from the
+same LAN as the build server. Do not use `-netdev user` for that test: user-mode NAT
+only provides a private QEMU network and the guest is not reachable as a LAN device.
+
+The repository provides `tests/qemu-bridged.sh`. It requires an already-created Linux
+bridge and the QEMU bridge helper permission; it never changes host networking, moves
+the host address, or modifies physical interfaces:
+
+```bash
+sudo install -m 0755 tests/qemu-bridged.sh /usr/local/sbin/openipc-qemu-bridged
+sudo sh -c 'printf "allow br0\\n" > /etc/qemu/bridge.conf'
+openipc-qemu-bridged br0 bzImage rootfs.squashfs overlay.ext4
+```
+
+The bridge must be provisioned by the host administrator using the host's network
+manager, with the host's LAN address assigned to the bridge (not the physical slave).
+The physical interface must be enslaved to that bridge. Provisioning a bridge over the
+only SSH interface can disconnect the server, so this project deliberately does not
+automate it. The guest's DHCP request then travels through `br0` to the physical LAN;
+there are no NAT port forwards. On the supplied build server, no `br0` exists yet, so
+this requires an explicit, console-safe host networking change before a bridged boot
+can be tested.
+
 When invoked outside a checkout, the helper creates a temporary disposable clone, selects
 `--ref` (or `master`), and initializes its recursive submodules there. If invoked from a
 checkout, it uses that checkout without changing branches, refs, or submodules. Supplying
