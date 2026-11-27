@@ -15,6 +15,8 @@ sed -i '/^osd:/,/^[^ ]/ s/^  enable: true$/  enable: false/' "$config"
 sed -i '/^mjpeg:/,/^[^ ]/ s/^  enable: true$/  enable: false/' "$config"
 [ "$(sed -n '/^osd:/,/^[^ ]/p' "$config" | grep -c '^  enable: false$')" -eq 1 ]
 [ "$(sed -n '/^mjpeg:/,/^[^ ]/p' "$config" | grep -c '^  enable: false$')" -eq 1 ]
+# SSH is part of the x86 image; fail the build if its daemon or boot hook is missing.
+[ -x "$1/usr/sbin/dropbear" ] && [ -x "$1/etc/init.d/S50dropbear" ]
 # O_NOFOLLOW requires a real document root, not a /var/www symlink.
 [ -d "$1/var/www" ] && [ ! -L "$1/var/www" ]
 

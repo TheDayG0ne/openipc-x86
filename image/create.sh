@@ -71,7 +71,7 @@ cat > "$tmp/boot/grub/grub.cfg" <<EOF
 set timeout=3
 set default=0
 menuentry 'OpenIPC x86 experimental' {
-    linux /bzImage root=PARTUUID=$sig-02 rootfstype=squashfs ro init=/init rootwait overlay.x86=PARTUUID=$sig-03
+    linux /bzImage console=tty0 root=PARTUUID=$sig-02 rootfstype=squashfs ro init=/init rootwait overlay.x86=PARTUUID=$sig-03
 }
 EOF
 grub-install --target=i386-pc --boot-directory="$tmp/boot" --modules='part_msdos ext2' --no-floppy "$loop"
