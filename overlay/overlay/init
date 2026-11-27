@@ -10,7 +10,13 @@ fail() {
 }
 
 mount -t proc proc /proc || fail 'cannot mount proc'
-mount -t devtmpfs devtmpfs /dev || fail 'cannot mount devtmpfs'
+if awk '$2 == "/dev" { found=1; if ($3 != "devtmpfs") exit 1 } END { if (!found) exit 2 }' /proc/mounts; then
+    : # Buildroot may force the kernel to mount devtmpfs before init.
+else
+    status=$?
+    [ "$status" -eq 2 ] || fail 'unexpected filesystem mounted on /dev'
+    mount -t devtmpfs devtmpfs /dev || fail 'cannot mount devtmpfs'
+fi
 # Avoid ever mounting the root device writable as the data store.
 awk '$2 == "/" && $3 == "squashfs" && $4 ~ /(^|,)ro(,|$)/ {ok=1} END {exit !ok}' /proc/mounts || fail 'root must be read-only squashfs'
 # The lower squashfs is read-only: these mountpoints must exist in the image.
