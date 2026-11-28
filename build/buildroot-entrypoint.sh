@@ -28,12 +28,21 @@ chmod +x /work/output/firmware-general/scripts/rootfs_script.sh /work/buildroot-
 printf '%s\n' 'DIVINUS_OVERRIDE_SRCDIR = /work/divinus' > /work/output/local.mk
 make -C /work/buildroot O=/work/output BR2_EXTERNAL=/work/output/firmware-general:/work/buildroot-x86 openipc_x86_64_defconfig
 make -C /work/buildroot O=/work/output BR2_EXTERNAL=/work/output/firmware-general:/work/buildroot-x86 -j"${JOBS:-2}" all
-# Fail the pipeline if post-build processing removed or changed representative assets.
+# The complete Majestic-derived tree is shipped. Do not silently reduce the UI
+# to the dashboard subset: every source asset must be present byte-for-byte.
 [ -d /work/output/target/var/www ] && [ ! -L /work/output/target/var/www ]
-for asset in index.html favicon.ico a/divinus.js a/divinus.css a/bootstrap.min.css a/bootstrap.override.css a/logo.svg; do
-    [ ! -L "/work/output/target/var/www/$asset" ]
-    cmp "/work/divinus-webui/www/$asset" "/work/output/target/var/www/$asset"
+find /work/divinus-webui/www -type f -print | while IFS= read -r source; do
+    relative=${source#/work/divinus-webui/www/}
+    target=/work/output/target/var/www/$relative
+    [ -f "$target" ] && [ ! -L "$target" ] || { echo "Missing WebUI asset: $relative" >&2; exit 1; }
+    cmp "$source" "$target" || { echo "Changed WebUI asset: $relative" >&2; exit 1; }
 done
+[ "$(find /work/divinus-webui/www -type f | wc -l)" -eq "$(find /work/output/target/var/www -type f | wc -l)" ] || {
+    echo 'WebUI asset count mismatch' >&2; exit 1;
+}
+grep -q '^  web_enable_static: true$' /work/output/target/etc/divinus.yaml
+ grep -q '^  web_enable_auth: true$' /work/output/target/etc/divinus.yaml
+ grep -q '^  web_auth_skiplocal: false$' /work/output/target/etc/divinus.yaml
 grep -q '^  web_enable_static: true$' /work/output/target/etc/divinus.yaml
 grep -q '^  web_enable_auth: true$' /work/output/target/etc/divinus.yaml
 grep -q '^  web_auth_skiplocal: false$' /work/output/target/etc/divinus.yaml
